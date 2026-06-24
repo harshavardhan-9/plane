@@ -1,0 +1,5 @@
+com\plane\auth\repository\UserRepository.class
+com\plane\auth\entity\User$UserBuilder.class
+com\plane\shared\entity\BaseEntity.class
+com\plane\auth\entity\User.class
+com\plane\backend\BackendApplication.class
