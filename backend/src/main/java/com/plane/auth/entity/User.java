@@ -25,12 +25,15 @@ public class User extends BaseEntity {
     @Column(name = "avatar_url")
     private String avatarUrl;
 
+    @Builder.Default
     @Column(name = "timezone")
     private String timezone = "UTC";
 
+    @Builder.Default
     @Column(name = "is_active")
     private boolean active = true;
 
+    @Builder.Default
     @Column(name = "is_email_verified")
     private boolean emailVerified = false;
 }

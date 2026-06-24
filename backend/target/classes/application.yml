@@ -9,6 +9,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+    open-in-view: false
     show-sql: true
     properties:
       hibernate:
@@ -31,6 +32,15 @@ jwt:
   secret: your-256-bit-secret-key-here-change-in-production-please
   access-token-expiry: 900000
   refresh-token-expiry: 604800000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
 
 logging:
   level:
