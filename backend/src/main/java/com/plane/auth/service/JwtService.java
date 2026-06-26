@@ -45,7 +45,4 @@ public class JwtService {
                 .getPayload();
     }
 
-    public long getAccessTokenExpiry() {
-        return jwtProperties.getAccessTokenExpiry();
-    }
 }

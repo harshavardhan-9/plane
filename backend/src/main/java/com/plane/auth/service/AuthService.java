@@ -9,7 +9,7 @@ import com.plane.auth.entity.User;
 import com.plane.auth.repository.RefreshTokenRepository;
 import com.plane.auth.repository.UserRepository;
 import com.plane.security.JwtProperties;
-import com.plane.shared.exception.EmailAlreadyExistsException;
+import com.plane.shared.exception.ConflictException;
 import com.plane.shared.exception.InvalidCredentialsException;
 import com.plane.shared.exception.InvalidTokenException;
 import io.jsonwebtoken.Claims;
@@ -37,7 +37,7 @@ public class AuthService {
     @Transactional
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
-            throw new EmailAlreadyExistsException(request.email());
+            throw new ConflictException("Email already registered: " + request.email());
         }
         User user = User.builder()
                 .email(request.email())
@@ -99,6 +99,6 @@ public class AuthService {
                 .token(refreshTokenValue)
                 .expiresAt(OffsetDateTime.now().plusSeconds(jwtProperties.getRefreshTokenExpiry() / 1000))
                 .build());
-        return new AuthResponse(accessToken, refreshTokenValue, jwtService.getAccessTokenExpiry(), UserResponse.from(user));
+        return new AuthResponse(accessToken, refreshTokenValue, jwtProperties.getAccessTokenExpiry(), UserResponse.from(user));
     }
 }

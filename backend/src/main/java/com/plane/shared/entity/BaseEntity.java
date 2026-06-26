@@ -30,10 +30,6 @@ public abstract class BaseEntity {
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;
 
-    public boolean isDeleted() {
-        return deletedAt != null;
-    }
-
     public void softDelete() {
         this.deletedAt = OffsetDateTime.now();
     }

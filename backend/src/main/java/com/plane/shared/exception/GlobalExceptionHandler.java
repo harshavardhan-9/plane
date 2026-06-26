@@ -31,12 +31,6 @@ public class GlobalExceptionHandler {
         return ErrorResponse.of(409, "CONFLICT", ex.getMessage());
     }
 
-    @ExceptionHandler(EmailAlreadyExistsException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public ErrorResponse handleEmailAlreadyExists(EmailAlreadyExistsException ex) {
-        return ErrorResponse.of(409, "CONFLICT", ex.getMessage());
-    }
-
     @ExceptionHandler(InvalidCredentialsException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ErrorResponse handleInvalidCredentials(InvalidCredentialsException ex) {
