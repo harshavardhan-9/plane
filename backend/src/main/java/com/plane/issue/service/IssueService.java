@@ -7,6 +7,7 @@ import com.plane.project.entity.*;
 import com.plane.project.repository.ProjectMemberRepository;
 import com.plane.project.repository.ProjectRepository;
 import com.plane.project.repository.StateRepository;
+import com.plane.shared.exception.ConflictException;
 import com.plane.shared.exception.ForbiddenException;
 import com.plane.shared.exception.ResourceNotFoundException;
 import com.plane.workspace.entity.Workspace;
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -28,6 +30,8 @@ public class IssueService {
     private final IssueRepository issueRepository;
     private final IssueAssigneeRepository issueAssigneeRepository;
     private final IssueLabelRepository issueLabelRepository;
+    private final IssueRelationRepository issueRelationRepository;
+    private final IssueActivityRepository issueActivityRepository;
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final StateRepository stateRepository;
@@ -67,6 +71,9 @@ public class IssueService {
 
         List<UUID> assigneeIds = saveAssignees(issue.getId(), request.assigneeIds());
         List<UUID> labelIds = saveLabels(issue.getId(), request.labelIds());
+
+        issueActivityRepository.save(IssueActivity.builder()
+                .issueId(issue.getId()).actorId(userId).verb(IssueActivityVerb.CREATED).build());
 
         return IssueResponse.from(issue, project.getIdentifier(), assigneeIds, labelIds);
     }
@@ -120,6 +127,13 @@ public class IssueService {
         requireProjectRole(projectId, userId, ProjectRole.MEMBER);
         Issue issue = getIssue(issueId, projectId);
 
+        List<UUID> prevAssigneeIds = issueAssigneeRepository.findAllByIssueId(issueId).stream()
+                .map(IssueAssignee::getUserId).toList();
+        List<UUID> prevLabelIds = issueLabelRepository.findAllByIssueId(issueId).stream()
+                .map(IssueLabel::getLabelId).toList();
+        IssueSnapshot before = new IssueSnapshot(issue.getTitle(), issue.getStateId(), issue.getPriority(),
+                issue.getParentId(), issue.getDueDate(), new HashSet<>(prevAssigneeIds), new HashSet<>(prevLabelIds));
+
         if (request.title() != null && !request.title().isBlank()) issue.setTitle(request.title());
         if (request.description() != null) issue.setDescription(request.description());
         if (request.priority() != null) issue.setPriority(request.priority());
@@ -137,27 +151,29 @@ public class IssueService {
             });
         }
 
-        List<UUID> assigneeIds;
-        List<UUID> labelIds;
+        List<UUID> finalAssigneeIds;
+        List<UUID> finalLabelIds;
 
         if (request.assigneeIds() != null) {
             issueAssigneeRepository.deleteAllByIssueId(issueId);
-            assigneeIds = saveAssignees(issueId, request.assigneeIds());
+            finalAssigneeIds = saveAssignees(issueId, request.assigneeIds());
         } else {
-            assigneeIds = issueAssigneeRepository.findAllByIssueId(issueId).stream()
-                    .map(IssueAssignee::getUserId).toList();
+            finalAssigneeIds = prevAssigneeIds;
         }
 
         if (request.labelIds() != null) {
             issueLabelRepository.deleteAllByIssueId(issueId);
-            labelIds = saveLabels(issueId, request.labelIds());
+            finalLabelIds = saveLabels(issueId, request.labelIds());
         } else {
-            labelIds = issueLabelRepository.findAllByIssueId(issueId).stream()
-                    .map(IssueLabel::getLabelId).toList();
+            finalLabelIds = prevLabelIds;
         }
 
         issueRepository.save(issue);
-        return IssueResponse.from(issue, project.getIdentifier(), assigneeIds, labelIds);
+
+        List<IssueActivity> diffs = buildActivityDiff(before, issue, finalAssigneeIds, finalLabelIds, userId);
+        if (!diffs.isEmpty()) issueActivityRepository.saveAll(diffs);
+
+        return IssueResponse.from(issue, project.getIdentifier(), finalAssigneeIds, finalLabelIds);
     }
 
     @Transactional
@@ -168,6 +184,62 @@ public class IssueService {
         Issue issue = getIssue(issueId, projectId);
         issue.softDelete();
         issueRepository.save(issue);
+    }
+
+    @Transactional
+    public RelationResponse addRelation(String slug, UUID projectId, UUID issueId,
+            AddRelationRequest request, UUID userId) {
+        Workspace workspace = getWorkspace(slug);
+        getProject(projectId, workspace.getId());
+        requireProjectRole(projectId, userId, ProjectRole.MEMBER);
+
+        if (issueId.equals(request.targetIssueId())) {
+            throw new ConflictException("An issue cannot relate to itself");
+        }
+        getIssue(issueId, projectId);
+        getIssue(request.targetIssueId(), projectId);
+
+        if (issueRelationRepository.findBySourceIssueIdAndTargetIssueIdAndRelationType(
+                issueId, request.targetIssueId(), request.relationType()).isPresent()) {
+            throw new ConflictException("Relation already exists");
+        }
+
+        return RelationResponse.from(issueRelationRepository.saveAndFlush(IssueRelation.builder()
+                .sourceIssueId(issueId)
+                .targetIssueId(request.targetIssueId())
+                .relationType(request.relationType())
+                .build()));
+    }
+
+    @Transactional(readOnly = true)
+    public List<RelationResponse> findRelations(String slug, UUID projectId, UUID issueId, UUID userId) {
+        Workspace workspace = getWorkspace(slug);
+        Project project = getProject(projectId, workspace.getId());
+        checkProjectAccess(project, userId);
+        getIssue(issueId, projectId);
+        return issueRelationRepository.findAllBySourceIssueId(issueId).stream()
+                .map(RelationResponse::from).toList();
+    }
+
+    @Transactional
+    public void removeRelation(String slug, UUID projectId, UUID issueId,
+            UUID targetIssueId, IssueRelationType relationType, UUID userId) {
+        Workspace workspace = getWorkspace(slug);
+        getProject(projectId, workspace.getId());
+        requireProjectRole(projectId, userId, ProjectRole.MEMBER);
+        issueRelationRepository.findBySourceIssueIdAndTargetIssueIdAndRelationType(issueId, targetIssueId, relationType)
+                .orElseThrow(() -> new ResourceNotFoundException("Relation not found"));
+        issueRelationRepository.deleteByKey(issueId, targetIssueId, relationType);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ActivityResponse> findActivity(String slug, UUID projectId, UUID issueId, UUID userId) {
+        Workspace workspace = getWorkspace(slug);
+        Project project = getProject(projectId, workspace.getId());
+        checkProjectAccess(project, userId);
+        getIssue(issueId, projectId);
+        return issueActivityRepository.findAllByIssueIdOrderByCreatedAtDesc(issueId).stream()
+                .map(ActivityResponse::from).toList();
     }
 
     private void acquireSequenceLock(UUID projectId) {
@@ -191,6 +263,45 @@ public class IssueService {
                 .map(lid -> IssueLabel.builder().issueId(issueId).labelId(lid).build())
                 .toList());
         return labelIds;
+    }
+
+    private record IssueSnapshot(String title, UUID stateId, IssuePriority priority,
+                                  UUID parentId, LocalDate dueDate,
+                                  Set<UUID> assigneeIds, Set<UUID> labelIds) {}
+
+    private List<IssueActivity> buildActivityDiff(IssueSnapshot before, Issue after,
+            List<UUID> newAssigneeIds, List<UUID> newLabelIds, UUID actorId) {
+        List<IssueActivity> diffs = new ArrayList<>();
+        ifChanged(diffs, after.getId(), actorId, "title", before.title(), after.getTitle());
+        ifChanged(diffs, after.getId(), actorId, "state", str(before.stateId()), str(after.getStateId()));
+        ifChanged(diffs, after.getId(), actorId, "priority", before.priority().name(), after.getPriority().name());
+        ifChanged(diffs, after.getId(), actorId, "due_date", str(before.dueDate()), str(after.getDueDate()));
+        ifChanged(diffs, after.getId(), actorId, "parent", str(before.parentId()), str(after.getParentId()));
+        Set<UUID> newAssigneeSet = new HashSet<>(newAssigneeIds);
+        if (!before.assigneeIds().equals(newAssigneeSet)) {
+            diffs.add(activity(after.getId(), actorId, "assignees", sortedStr(before.assigneeIds()), sortedStr(newAssigneeSet)));
+        }
+        Set<UUID> newLabelSet = new HashSet<>(newLabelIds);
+        if (!before.labelIds().equals(newLabelSet)) {
+            diffs.add(activity(after.getId(), actorId, "labels", sortedStr(before.labelIds()), sortedStr(newLabelSet)));
+        }
+        return diffs;
+    }
+
+    private void ifChanged(List<IssueActivity> list, UUID issueId, UUID actorId,
+            String field, String oldVal, String newVal) {
+        if (!Objects.equals(oldVal, newVal)) list.add(activity(issueId, actorId, field, oldVal, newVal));
+    }
+
+    private IssueActivity activity(UUID issueId, UUID actorId, String field, String oldVal, String newVal) {
+        return IssueActivity.builder().issueId(issueId).actorId(actorId)
+                .verb(IssueActivityVerb.UPDATED).field(field).oldValue(oldVal).newValue(newVal).build();
+    }
+
+    private String str(Object o) { return o == null ? null : o.toString(); }
+
+    private String sortedStr(Set<UUID> ids) {
+        return ids.stream().map(UUID::toString).sorted().collect(Collectors.joining(","));
     }
 
     private Workspace getWorkspace(String slug) {
