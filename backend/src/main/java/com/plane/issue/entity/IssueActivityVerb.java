@@ -1,5 +1,5 @@
 package com.plane.issue.entity;
 
 public enum IssueActivityVerb {
-    CREATED, UPDATED
+    CREATED, UPDATED, COMMENTED, COMMENT_DELETED
 }
