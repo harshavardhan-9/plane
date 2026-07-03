@@ -10,6 +10,8 @@ import com.plane.project.repository.StateRepository;
 import com.plane.shared.exception.ConflictException;
 import com.plane.shared.exception.ForbiddenException;
 import com.plane.shared.exception.ResourceNotFoundException;
+import com.plane.kafka.event.IssueEvent;
+import com.plane.kafka.producer.DomainEventPublisher;
 import com.plane.workspace.entity.Workspace;
 import com.plane.workspace.repository.WorkspaceMemberRepository;
 import com.plane.workspace.repository.WorkspaceRepository;
@@ -38,6 +40,7 @@ public class IssueService {
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceMemberRepository workspaceMemberRepository;
     private final EntityManager entityManager;
+    private final DomainEventPublisher eventPublisher;
 
     @Transactional
     public IssueResponse create(String slug, UUID projectId, CreateIssueRequest request, UUID userId) {
@@ -75,6 +78,7 @@ public class IssueService {
         issueActivityRepository.save(IssueActivity.builder()
                 .issueId(issue.getId()).actorId(userId).verb(IssueActivityVerb.CREATED).build());
 
+        eventPublisher.publish(IssueEvent.created(issue.getId(), projectId, workspace.getId(), userId));
         return IssueResponse.from(issue, project.getIdentifier(), assigneeIds, labelIds);
     }
 
@@ -173,6 +177,7 @@ public class IssueService {
         List<IssueActivity> diffs = buildActivityDiff(before, issue, finalAssigneeIds, finalLabelIds, userId);
         if (!diffs.isEmpty()) issueActivityRepository.saveAll(diffs);
 
+        eventPublisher.publish(IssueEvent.updated(issue.getId(), projectId, workspace.getId(), userId));
         return IssueResponse.from(issue, project.getIdentifier(), finalAssigneeIds, finalLabelIds);
     }
 

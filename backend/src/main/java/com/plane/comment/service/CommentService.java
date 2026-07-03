@@ -1,9 +1,9 @@
 package com.plane.comment.service;
 
-import com.plane.comment.dto.CommentResponse;
-import com.plane.comment.dto.CreateCommentRequest;
-import com.plane.comment.dto.UpdateCommentRequest;
+import com.plane.comment.dto.*;
 import com.plane.comment.entity.Comment;
+import com.plane.comment.entity.CommentReaction;
+import com.plane.comment.repository.CommentReactionRepository;
 import com.plane.comment.repository.CommentRepository;
 import com.plane.issue.entity.Issue;
 import com.plane.issue.entity.IssueActivity;
@@ -16,6 +16,9 @@ import com.plane.project.entity.ProjectNetwork;
 import com.plane.project.entity.ProjectRole;
 import com.plane.project.repository.ProjectMemberRepository;
 import com.plane.project.repository.ProjectRepository;
+import com.plane.kafka.event.CommentEvent;
+import com.plane.kafka.producer.DomainEventPublisher;
+import com.plane.shared.exception.ConflictException;
 import com.plane.shared.exception.ForbiddenException;
 import com.plane.shared.exception.ResourceNotFoundException;
 import com.plane.workspace.entity.Workspace;
@@ -33,6 +36,8 @@ import java.util.UUID;
 public class CommentService {
 
     private final CommentRepository commentRepository;
+    private final CommentReactionRepository commentReactionRepository;
+    private final DomainEventPublisher eventPublisher;
     private final IssueRepository issueRepository;
     private final IssueActivityRepository issueActivityRepository;
     private final ProjectRepository projectRepository;
@@ -53,7 +58,7 @@ public class CommentService {
     @Transactional
     public CommentResponse create(String slug, UUID projectId, UUID issueId, CreateCommentRequest request, UUID userId) {
         Workspace workspace = getWorkspace(slug);
-        getProject(projectId, workspace.getId());
+        Project project = getProject(projectId, workspace.getId());
         requireProjectRole(projectId, userId, ProjectRole.MEMBER);
         getIssue(issueId, projectId);
 
@@ -69,6 +74,7 @@ public class CommentService {
                 .field("comment").newValue(comment.getBody())
                 .build());
 
+        eventPublisher.publish(CommentEvent.added(comment.getId(), issueId, projectId, workspace.getId(), userId));
         return CommentResponse.from(comment);
     }
 
@@ -101,6 +107,51 @@ public class CommentService {
                 .verb(IssueActivityVerb.COMMENT_DELETED)
                 .field("comment").oldValue(comment.getBody())
                 .build());
+
+        eventPublisher.publish(CommentEvent.deleted(commentId, issueId, projectId, workspace.getId(), userId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<CommentReactionResponse> listReactions(String slug, UUID projectId, UUID issueId,
+            UUID commentId, UUID userId) {
+        Workspace workspace = getWorkspace(slug);
+        Project project = getProject(projectId, workspace.getId());
+        checkProjectAccess(project, userId);
+        getComment(commentId, issueId);
+        return commentReactionRepository.findAllByCommentId(commentId).stream()
+                .map(CommentReactionResponse::from).toList();
+    }
+
+    @Transactional
+    public CommentReactionResponse addReaction(String slug, UUID projectId, UUID issueId,
+            UUID commentId, AddReactionRequest request, UUID userId) {
+        Workspace workspace = getWorkspace(slug);
+        Project project = getProject(projectId, workspace.getId());
+        checkProjectAccess(project, userId);
+        getComment(commentId, issueId);
+        if (commentReactionRepository.findByCommentIdAndUserIdAndEmoji(commentId, userId, request.emoji()).isPresent()) {
+            throw new ConflictException("You have already reacted with this emoji");
+        }
+        return CommentReactionResponse.from(commentReactionRepository.saveAndFlush(
+                CommentReaction.builder()
+                        .commentId(commentId).userId(userId).emoji(request.emoji())
+                        .build()));
+    }
+
+    @Transactional
+    public void removeReaction(String slug, UUID projectId, UUID issueId,
+            UUID commentId, UUID reactionId, UUID userId) {
+        Workspace workspace = getWorkspace(slug);
+        Project project = getProject(projectId, workspace.getId());
+        checkProjectAccess(project, userId);
+        getComment(commentId, issueId);
+        CommentReaction reaction = commentReactionRepository.findById(reactionId)
+                .filter(r -> r.getCommentId().equals(commentId))
+                .orElseThrow(() -> new ResourceNotFoundException("Reaction not found"));
+        if (!reaction.getUserId().equals(userId)) {
+            throw new ForbiddenException("You can only remove your own reactions");
+        }
+        commentReactionRepository.deleteById(reactionId);
     }
 
     private Comment getComment(UUID commentId, UUID issueId) {

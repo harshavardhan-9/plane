@@ -1,8 +1,6 @@
 package com.plane.comment.controller;
 
-import com.plane.comment.dto.CommentResponse;
-import com.plane.comment.dto.CreateCommentRequest;
-import com.plane.comment.dto.UpdateCommentRequest;
+import com.plane.comment.dto.*;
 import com.plane.comment.service.CommentService;
 import com.plane.security.UserPrincipal;
 import jakarta.validation.Valid;
@@ -57,5 +55,36 @@ public class CommentController {
                        @PathVariable UUID commentId,
                        @AuthenticationPrincipal UserPrincipal principal) {
         commentService.delete(slug, projectId, issueId, commentId, principal.getUserId());
+    }
+
+    @GetMapping("/{commentId}/reactions")
+    public List<CommentReactionResponse> listReactions(@PathVariable String slug,
+                                                       @PathVariable UUID projectId,
+                                                       @PathVariable UUID issueId,
+                                                       @PathVariable UUID commentId,
+                                                       @AuthenticationPrincipal UserPrincipal principal) {
+        return commentService.listReactions(slug, projectId, issueId, commentId, principal.getUserId());
+    }
+
+    @PostMapping("/{commentId}/reactions")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CommentReactionResponse addReaction(@PathVariable String slug,
+                                               @PathVariable UUID projectId,
+                                               @PathVariable UUID issueId,
+                                               @PathVariable UUID commentId,
+                                               @Valid @RequestBody AddReactionRequest request,
+                                               @AuthenticationPrincipal UserPrincipal principal) {
+        return commentService.addReaction(slug, projectId, issueId, commentId, request, principal.getUserId());
+    }
+
+    @DeleteMapping("/{commentId}/reactions/{reactionId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeReaction(@PathVariable String slug,
+                               @PathVariable UUID projectId,
+                               @PathVariable UUID issueId,
+                               @PathVariable UUID commentId,
+                               @PathVariable UUID reactionId,
+                               @AuthenticationPrincipal UserPrincipal principal) {
+        commentService.removeReaction(slug, projectId, issueId, commentId, reactionId, principal.getUserId());
     }
 }
