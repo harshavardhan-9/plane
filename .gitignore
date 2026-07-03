@@ -1,5 +1,8 @@
 docs/
 
+# Local smoke tests 
+backend/local-tests/
+
 # Maven
 **/target/
 *.class
