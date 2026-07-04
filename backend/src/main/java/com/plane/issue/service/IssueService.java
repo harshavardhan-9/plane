@@ -71,6 +71,7 @@ public class IssueService {
                 .dueDate(request.dueDate())
                 .build();
         issueRepository.saveAndFlush(issue);
+        issueRepository.updateSearchVector(issue.getId(), searchText(issue));
 
         List<UUID> assigneeIds = saveAssignees(issue.getId(), request.assigneeIds());
         List<UUID> labelIds = saveLabels(issue.getId(), request.labelIds());
@@ -173,6 +174,7 @@ public class IssueService {
         }
 
         issueRepository.save(issue);
+        issueRepository.updateSearchVector(issue.getId(), searchText(issue));
 
         List<IssueActivity> diffs = buildActivityDiff(before, issue, finalAssigneeIds, finalLabelIds, userId);
         if (!diffs.isEmpty()) issueActivityRepository.saveAll(diffs);
@@ -301,6 +303,10 @@ public class IssueService {
     private IssueActivity activity(UUID issueId, UUID actorId, String field, String oldVal, String newVal) {
         return IssueActivity.builder().issueId(issueId).actorId(actorId)
                 .verb(IssueActivityVerb.UPDATED).field(field).oldValue(oldVal).newValue(newVal).build();
+    }
+
+    private String searchText(Issue i) {
+        return i.getTitle() + (i.getDescription() != null ? " " + i.getDescription() : "");
     }
 
     private String str(Object o) { return o == null ? null : o.toString(); }
