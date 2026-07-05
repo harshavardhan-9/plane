@@ -60,11 +60,12 @@ public class AuthService {
         return buildAuthResponse(user);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = InvalidTokenException.class)
     public AuthResponse refresh(String tokenValue) {
         RefreshToken refreshToken = refreshTokenRepository.findByToken(tokenValue)
                 .orElseThrow(() -> new InvalidTokenException("Refresh token not found"));
         if (refreshToken.isRevoked() || refreshToken.isExpired()) {
+            refreshTokenRepository.revokeAllByUserId(refreshToken.getUserId());
             throw new InvalidTokenException("Refresh token is expired or revoked");
         }
         refreshToken.setRevoked(true);
