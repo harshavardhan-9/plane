@@ -74,6 +74,9 @@ export default function AppShell() {
   const [inviteText, setInviteText] = useState('')
   const [pendingInvites, setPendingInvites] = useState<Member[]>([])
   const [notifications, setNotifications] = useState<Notification[]>(SEED_NOTIFICATIONS)
+  const [groupBy, setGroupBy] = useState<'state' | 'priority' | 'assignee'>('state')
+  const [priorityFilter, setPriorityFilter] = useState<Set<PriorityKey>>(new Set())
+  const [assigneeFilter, setAssigneeFilter] = useState<Set<string>>(new Set())
 
   // ─── Queries ───
   const { data: workspaces = [] } = useQuery({ queryKey: ['workspaces'], queryFn: getWorkspaces })
@@ -135,8 +138,33 @@ export default function AppShell() {
   })
 
   const createIssueM = useMutation({
-    mutationFn: (data: { title: string; stateId?: string }) => createIssue(slug, projectId!, data),
-    onSuccess: invalidateIssues,
+    mutationFn: (data: { title: string; stateId?: string; priority?: string; assigneeIds?: string[] }) =>
+      createIssue(slug, projectId!, data),
+    onMutate: async (data) => {
+      await qc.cancelQueries({ queryKey: ['issues', slug, projectId] })
+      const tempSeq = (qc.getQueryData<Issue[]>(['issues', slug, projectId]) ?? [])
+        .reduce((mx, it) => Math.max(mx, it.sequence), 0) + 1
+      const temp: Issue = {
+        id: `temp-${Date.now()}`,
+        projectId: projectId!,
+        workspaceId: '',
+        title: data.title,
+        description: null,
+        stateId: data.stateId ?? null,
+        priority: (data.priority ?? 'NONE') as Issue['priority'],
+        sequence: tempSeq,
+        parentId: null,
+        dueDate: null,
+        completedAt: null,
+        assigneeIds: data.assigneeIds ?? [],
+        labelIds: [],
+        identifier: `${project?.identifier ?? '…'}-${tempSeq}`,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      qc.setQueryData<Issue[]>(['issues', slug, projectId], (old) => [...(old ?? []), temp])
+    },
+    onSettled: invalidateIssues,
   })
 
   const createProjectM = useMutation({
@@ -243,12 +271,26 @@ export default function AppShell() {
     updateIssueM.mutate({ id, patch: { assigneeIds: [next.userId] } })
   }
 
+  const defaultStateId = states.find((s) => s.defaultState)?.id ?? orderedStates[1]?.id ?? orderedStates[0]?.id
+
+  // Group key encodes which dimension is grouping: raw state id, "priority:xxx", or "assignee:xxx"|"assignee:unassigned"
+  const patchForGroupKey = (key: string): { stateId?: string; priority?: string; assigneeIds?: string[] } => {
+    if (groupBy === 'state') return { stateId: key }
+    if (key.startsWith('priority:')) return { priority: key.slice('priority:'.length).toUpperCase() }
+    if (key.startsWith('assignee:')) {
+      const id = key.slice('assignee:'.length)
+      return { assigneeIds: id === 'unassigned' ? [] : [id] }
+    }
+    return {}
+  }
+
   const openQuickAdd = (group: string) => { setQuickAddGroup(group); setQuickAddText('') }
 
   const commitQuickAdd = () => {
     const title = quickAddText.trim()
     if (!title || !quickAddGroup) { setQuickAddGroup(null); setQuickAddText(''); return }
-    createIssueM.mutate({ title, stateId: quickAddGroup })
+    const groupPatch = patchForGroupKey(quickAddGroup)
+    createIssueM.mutate({ title, stateId: groupPatch.stateId ?? defaultStateId, priority: groupPatch.priority, assigneeIds: groupPatch.assigneeIds })
     setQuickAddText('')
   }
 
@@ -258,18 +300,28 @@ export default function AppShell() {
   }
 
   const onColDrop = (group: string) => {
-    if (dragId != null) updateIssueM.mutate({ id: dragId, patch: { stateId: group } })
+    if (dragId != null) updateIssueM.mutate({ id: dragId, patch: patchForGroupKey(group) })
     setDragId(null); setDragOverGroup(null)
   }
 
   const identAuto = projName.replace(/[^a-zA-Z]/g, '').slice(0, 4).toUpperCase()
   const openCreate = () => { setCreateOpen(true); setProjName(''); setProjIdent(''); setProjDesc(''); setWsOpen(false); setPaletteOpen(false) }
 
-  const defaultStateId = states.find((s) => s.defaultState)?.id ?? orderedStates[1]?.id ?? orderedStates[0]?.id
-  const openQuickAddTodo = () => {
-    if (!defaultStateId) return
-    setView('work-items'); setLayout('list'); setQuickAddGroup(defaultStateId); setQuickAddText('')
-  }
+  const toggleInSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (v: string) =>
+    setter((s) => { const n = new Set(s); if (n.has(v)) n.delete(v); else n.add(v); return n })
+  const togglePriorityFilter = (p: PriorityKey) =>
+    setPriorityFilter((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else n.add(p); return n })
+  const toggleAssigneeFilter = toggleInSet(setAssigneeFilter)
+  const clearFilters = () => { setPriorityFilter(new Set()); setAssigneeFilter(new Set()) }
+
+  const filteredIssues = issues.filter((it) => {
+    if (priorityFilter.size > 0 && !priorityFilter.has(priorityKey(it.priority))) return false
+    if (assigneeFilter.size > 0) {
+      const ids = it.assigneeIds.length > 0 ? it.assigneeIds : ['unassigned']
+      if (!ids.some((id) => assigneeFilter.has(id))) return false
+    }
+    return true
+  })
 
   // ─── Row mapping ───
   const labelChips = (ids: string[]) =>
@@ -297,18 +349,50 @@ export default function AppShell() {
     }
   }
 
-  const groups = orderedStates.map((st) => {
-    const items = issues.filter((it) => it.stateId === st.id).map(rowOf)
+  interface GroupDef { key: string; label: string; color: string; matches: (it: Issue) => boolean }
+
+  let groupDefs: GroupDef[]
+  if (groupBy === 'priority') {
+    groupDefs = [...PRIORITY_ORDER].reverse().map((pk) => ({
+      key: 'priority:' + pk,
+      label: pk.charAt(0).toUpperCase() + pk.slice(1),
+      color: PRIORITIES[pk].color,
+      matches: (it) => priorityKey(it.priority) === pk,
+    }))
+  } else if (groupBy === 'assignee') {
+    const opts = [...wsMembers.map((m, i) => ({ id: m.userId, name: m.displayName, color: MEMBER_COLORS[i % MEMBER_COLORS.length] })),
+      { id: 'unassigned', name: 'Unassigned', color: UNASSIGNED_BG }]
+    groupDefs = opts.map((o) => ({
+      key: 'assignee:' + o.id,
+      label: o.name,
+      color: o.color,
+      matches: (it) => (o.id === 'unassigned' ? it.assigneeIds.length === 0 : it.assigneeIds.includes(o.id)),
+    }))
+  } else {
+    groupDefs = orderedStates.map((st) => ({ key: st.id, label: st.name, color: st.color, matches: (it) => it.stateId === st.id }))
+  }
+
+  const groups = groupDefs.map((gd) => {
+    const items = filteredIssues.filter(gd.matches).map(rowOf)
     return {
-      key: st.id,
-      label: st.name,
-      color: st.color,
+      key: gd.key,
+      label: gd.label,
+      color: gd.color,
       count: items.length,
       items,
-      isQuickAdd: quickAddGroup === st.id,
-      dropBg: dragOverGroup === st.id ? 'var(--layer-transparent-active)' : 'transparent',
+      isQuickAdd: quickAddGroup === gd.key,
+      dropBg: dragOverGroup === gd.key ? 'var(--layer-transparent-active)' : 'transparent',
     }
   })
+
+  const openQuickAddTodo = () => {
+    const key = groupBy === 'state' ? defaultStateId : groups[0]?.key
+    if (!key) return
+    setView('work-items'); setLayout('list'); setQuickAddGroup(key); setQuickAddText('')
+  }
+
+  const assigneeOptions = [...wsMembers.map((m) => ({ id: m.userId, name: m.displayName })), { id: 'unassigned', name: 'Unassigned' }]
+  const activeFilterCount = priorityFilter.size + assigneeFilter.size
 
   const nextSeq = issues.reduce((mx, it) => Math.max(mx, it.sequence), 0) + 1
   const nextKey = `${project?.identifier ?? 'ITEM'}-${nextSeq}`
@@ -739,6 +823,10 @@ export default function AppShell() {
                 onCardDragStart={setDragId} onCardDragEnd={() => { setDragId(null); setDragOverGroup(null) }}
                 onColDragOver={(g) => { if (dragOverGroup !== g) setDragOverGroup(g) }}
                 onColDragLeave={() => setDragOverGroup(null)} onColDrop={onColDrop}
+                groupBy={groupBy} onGroupByChange={setGroupBy}
+                priorityFilter={priorityFilter} onTogglePriorityFilter={togglePriorityFilter}
+                assigneeOptions={assigneeOptions} assigneeFilter={assigneeFilter} onToggleAssigneeFilter={toggleAssigneeFilter}
+                onClearFilters={clearFilters} activeFilterCount={activeFilterCount}
               />
             )}
             {view === 'cycles' && <CyclesView groups={cycleListGroups} userInitial={userInitial} onOpen={(id) => { setActiveCycleId(id); setView('cycle-detail') }} />}

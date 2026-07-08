@@ -6,7 +6,7 @@ const base = (slug: string, projectId: string) => `/workspaces/${slug}/projects/
 export const getIssues = (slug: string, projectId: string) =>
   client.get<Issue[]>(base(slug, projectId)).then((r) => r.data)
 
-export const createIssue = (slug: string, projectId: string, data: { title: string; stateId?: string; priority?: string }) =>
+export const createIssue = (slug: string, projectId: string, data: { title: string; stateId?: string; priority?: string; assigneeIds?: string[] }) =>
   client.post<Issue>(base(slug, projectId), data).then((r) => r.data)
 
 export const updateIssue = (slug: string, projectId: string, issueId: string, patch: Partial<{ title: string; description: string; stateId: string; priority: string; assigneeIds: string[]; dueDate: string | null }>) =>

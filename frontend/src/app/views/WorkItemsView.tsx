@@ -1,5 +1,8 @@
-import { ICONS, type WorkGroup } from '../data'
+import { useEffect, useRef, useState } from 'react'
+import { ICONS, PRIORITIES, PRIORITY_ORDER, type WorkGroup, type PriorityKey } from '../data'
 import Icon from '../Icon'
+
+export type GroupBy = 'state' | 'priority' | 'assignee'
 
 interface Props {
   layout: 'list' | 'board'
@@ -18,6 +21,15 @@ interface Props {
   onColDragOver: (g: string) => void
   onColDragLeave: () => void
   onColDrop: (g: string) => void
+  groupBy: GroupBy
+  onGroupByChange: (g: GroupBy) => void
+  priorityFilter: Set<PriorityKey>
+  onTogglePriorityFilter: (p: PriorityKey) => void
+  assigneeOptions: { id: string; name: string }[]
+  assigneeFilter: Set<string>
+  onToggleAssigneeFilter: (id: string) => void
+  onClearFilters: () => void
+  activeFilterCount: number
 }
 
 const dueBadge = (due: string) => (
@@ -30,13 +42,56 @@ const avatar = (initial: string, name: string, bg: string, size = 22) => (
   <span title={name} style={{ width: size, height: size, borderRadius: '50%', background: bg, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: size <= 20 ? 9 : 10, fontWeight: 600 }}>{initial}</span>
 )
 
+// Controlled quick-add row that refocuses itself whenever it becomes the active group
+// (e.g. right after a create, when the parent re-renders with fresh data).
+function QuickAddInput({ value, onChange, onKey, placeholder, wide }: { value: string; onChange: (v: string) => void; onKey: (e: React.KeyboardEvent) => void; placeholder: string; wide?: boolean }) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { ref.current?.focus() }, [])
+  return (
+    <input
+      ref={ref} value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={onKey}
+      placeholder={placeholder}
+      style={{ flex: wide ? undefined : 1, width: wide ? '100%' : undefined, border: 'none', outline: 'none', background: 'transparent', color: 'var(--txt-primary)', fontSize: 13, fontWeight: 500, padding: wide ? 0 : '4px 0', boxSizing: 'border-box' }}
+    />
+  )
+}
+
 export default function WorkItemsView(p: Props) {
   const isList = p.layout === 'list'
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [displayOpen, setDisplayOpen] = useState(false)
 
   const toggleBtn = (active: boolean, onClick: () => void, path: string, title: string) => (
     <button onClick={onClick} title={title}
       style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 24, borderRadius: 5, border: 'none', cursor: 'pointer', background: active ? 'var(--bg-surface-1)' : 'transparent', color: active ? 'var(--txt-primary)' : 'var(--txt-tertiary)', boxShadow: active ? 'var(--shadow-raised-100)' : 'none' }}>
       <Icon path={path} size={14} />
+    </button>
+  )
+
+  const dropdownWrap = (open: boolean, onClose: () => void, content: React.ReactNode) => open && (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+      <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 41, width: 220, background: 'var(--bg-surface-1)', border: '1px solid var(--border-subtle)', borderRadius: 8, boxShadow: 'var(--shadow-overlay-200)', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {content}
+      </div>
+    </>
+  )
+
+  const checkRow = (label: string, checked: boolean, onClick: () => void, dotColor?: string) => (
+    <button key={label} onClick={onClick} className="hov-layer"
+      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 6px', borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' }}>
+      <span style={{ width: 14, height: 14, borderRadius: 4, border: `1.5px solid ${checked ? 'var(--accent-primary)' : 'var(--border-strong)'}`, background: checked ? 'var(--accent-primary)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        {checked && <Icon path={ICONS.check} size={10} sw={3} />}
+      </span>
+      {dotColor && <span style={{ width: 8, height: 8, borderRadius: '50%', border: `2px solid ${dotColor}`, boxSizing: 'border-box', flexShrink: 0 }} />}
+      <span style={{ fontSize: 13, color: 'var(--txt-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+    </button>
+  )
+
+  const radioRow = (label: string, active: boolean, onClick: () => void) => (
+    <button key={label} onClick={onClick} className="hov-layer"
+      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '5px 6px', borderRadius: 6, border: 'none', background: active ? 'var(--layer-transparent-active)' : 'transparent', color: active ? 'var(--txt-primary)' : 'var(--txt-secondary)', fontSize: 13, fontWeight: active ? 600 : 500, cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' }}>
+      {label}
     </button>
   )
 
@@ -49,12 +104,42 @@ export default function WorkItemsView(p: Props) {
           {toggleBtn(!isList, () => p.setLayout('board'), ICONS.board, 'Board layout')}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button className="hov-layer" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 28, padding: '0 10px', borderRadius: 6, border: '1px solid var(--border-strong)', background: 'transparent', color: 'var(--txt-secondary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
-            <Icon path={ICONS.filters} size={13} /> Filters
-          </button>
-          <button className="hov-layer" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 28, padding: '0 10px', borderRadius: 6, border: '1px solid var(--border-strong)', background: 'transparent', color: 'var(--txt-secondary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
-            Display <Icon path={ICONS.chevronDown} size={13} sw={2} />
-          </button>
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => { setFiltersOpen((o) => !o); setDisplayOpen(false) }} className="hov-layer"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, height: 28, padding: '0 10px', borderRadius: 6, border: '1px solid var(--border-strong)', background: p.activeFilterCount > 0 ? 'var(--accent-subtle)' : 'transparent', color: p.activeFilterCount > 0 ? 'var(--accent-primary)' : 'var(--txt-secondary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+              <Icon path={ICONS.filters} size={13} /> Filters{p.activeFilterCount > 0 ? ` (${p.activeFilterCount})` : ''}
+            </button>
+            {dropdownWrap(filtersOpen, () => setFiltersOpen(false), (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-placeholder)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Priority</span>
+                  {p.activeFilterCount > 0 && (
+                    <button onClick={p.onClearFilters} style={{ fontSize: 11, color: 'var(--accent-primary)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Clear</button>
+                  )}
+                </div>
+                {[...PRIORITY_ORDER].reverse().map((pk) =>
+                  checkRow(pk.charAt(0).toUpperCase() + pk.slice(1), p.priorityFilter.has(pk), () => p.onTogglePriorityFilter(pk), PRIORITIES[pk].color))}
+                <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '2px 0' }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-placeholder)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Assignee</span>
+                {p.assigneeOptions.map((a) =>
+                  checkRow(a.name, p.assigneeFilter.has(a.id), () => p.onToggleAssigneeFilter(a.id)))}
+              </>
+            ))}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => { setDisplayOpen((o) => !o); setFiltersOpen(false) }} className="hov-layer"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, height: 28, padding: '0 10px', borderRadius: 6, border: '1px solid var(--border-strong)', background: 'transparent', color: 'var(--txt-secondary)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+              Display <Icon path={ICONS.chevronDown} size={13} sw={2} />
+            </button>
+            {dropdownWrap(displayOpen, () => setDisplayOpen(false), (
+              <>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-placeholder)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Group by</span>
+                {radioRow('State', p.groupBy === 'state', () => { p.onGroupByChange('state'); setDisplayOpen(false) })}
+                {radioRow('Priority', p.groupBy === 'priority', () => { p.onGroupByChange('priority'); setDisplayOpen(false) })}
+                {radioRow('Assignee', p.groupBy === 'assignee', () => { p.onGroupByChange('assignee'); setDisplayOpen(false) })}
+              </>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -98,9 +183,7 @@ export default function WorkItemsView(p: Props) {
               {g.isQuickAdd && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 21px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--layer-transparent-hover)' }}>
                   <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--txt-placeholder)', minWidth: 58 }}>{p.nextKey}</span>
-                  <input value={p.quickAddText} onChange={(e) => p.onQuickAddInput(e.target.value)} onKeyDown={p.onQuickAddKey}
-                    placeholder="Type a title, then press Enter. Esc to cancel." autoFocus
-                    style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', color: 'var(--txt-primary)', fontSize: 13, fontWeight: 500, padding: '4px 0' }} />
+                  <QuickAddInput value={p.quickAddText} onChange={p.onQuickAddInput} onKey={p.onQuickAddKey} placeholder="Type a title, then press Enter. Esc to cancel." />
                 </div>
               )}
             </div>
@@ -155,9 +238,7 @@ export default function WorkItemsView(p: Props) {
                   ))}
                   {col.isQuickAdd && (
                     <div style={{ border: '1px solid var(--border-strong)', background: 'var(--bg-layer-2)', borderRadius: 8, padding: '10px 12px' }}>
-                      <input value={p.quickAddText} onChange={(e) => p.onQuickAddInput(e.target.value)} onKeyDown={p.onQuickAddKey}
-                        placeholder="Title, Enter to add" autoFocus
-                        style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', color: 'var(--txt-primary)', fontSize: 13, fontWeight: 500, boxSizing: 'border-box' }} />
+                      <QuickAddInput value={p.quickAddText} onChange={p.onQuickAddInput} onKey={p.onQuickAddKey} placeholder="Title, Enter to add" wide />
                     </div>
                   )}
                   <button onClick={() => p.onOpenQuickAdd(col.key)} className="hov-layer"
