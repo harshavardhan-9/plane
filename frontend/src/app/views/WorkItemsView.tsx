@@ -1,4 +1,4 @@
-import { ICONS, type StateKey, type WorkGroup } from '../data'
+import { ICONS, type WorkGroup } from '../data'
 import Icon from '../Icon'
 
 interface Props {
@@ -7,16 +7,17 @@ interface Props {
   groups: WorkGroup[]
   nextKey: string
   quickAddText: string
-  onOpenQuickAdd: (g: StateKey) => void
+  onOpenQuickAdd: (g: string) => void
   onQuickAddInput: (v: string) => void
   onQuickAddKey: (e: React.KeyboardEvent) => void
-  onCycleState: (id: number) => void
-  onCyclePriority: (id: number) => void
-  onCardDragStart: (id: number) => void
+  onCycleState: (id: string) => void
+  onCyclePriority: (id: string) => void
+  onOpenPeek: (id: string) => void
+  onCardDragStart: (id: string) => void
   onCardDragEnd: () => void
-  onColDragOver: (g: StateKey) => void
+  onColDragOver: (g: string) => void
   onColDragLeave: () => void
-  onColDrop: (g: StateKey) => void
+  onColDrop: (g: string) => void
 }
 
 const dueBadge = (due: string) => (
@@ -73,18 +74,18 @@ export default function WorkItemsView(p: Props) {
                 </button>
               </div>
               {g.items.map((row) => (
-                <div key={row.id} className="hov-layer" style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44, padding: '0 21px', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer', background: 'transparent' }}>
+                <div key={row.id} onClick={() => p.onOpenPeek(row.id)} className="hov-layer" style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 44, padding: '0 21px', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer', background: 'transparent' }}>
                   <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--txt-tertiary)', flexShrink: 0, minWidth: 58 }}>{row.key}</span>
                   <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{row.name}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     {row.labels.map((lb) => (
                       <span key={lb.name} style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 99, background: lb.bg, color: lb.color }}>{lb.name}</span>
                     ))}
-                    <button onClick={() => p.onCyclePriority(row.id)} title="Priority — click to change" className="hov-layer"
+                    <button onClick={(e) => { e.stopPropagation(); p.onCyclePriority(row.id) }} title="Priority — click to change" className="hov-layer"
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 22, width: 24, borderRadius: 5, border: '1px solid var(--border-strong)', background: 'transparent', color: row.priorityColor, cursor: 'pointer' }}>
                       <Icon path={row.priorityPath} size={12} sw={2.4} />
                     </button>
-                    <button onClick={() => p.onCycleState(row.id)} title={`${row.stateLabel} — click to change`} className="hov-layer"
+                    <button onClick={(e) => { e.stopPropagation(); p.onCycleState(row.id) }} title={`${row.stateLabel} — click to change`} className="hov-layer"
                       style={{ display: 'flex', alignItems: 'center', gap: 5, height: 22, padding: '0 8px', borderRadius: 5, border: '1px solid var(--border-strong)', background: 'transparent', color: 'var(--txt-secondary)', fontSize: 11, fontWeight: 500, cursor: 'pointer' }}>
                       <span style={{ width: 9, height: 9, borderRadius: '50%', border: `2.5px solid ${row.stateColor}`, boxSizing: 'border-box' }} />
                       {row.stateLabel}
@@ -131,12 +132,13 @@ export default function WorkItemsView(p: Props) {
                 <div style={{ overflowY: 'auto', padding: '0 8px 8px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {col.items.map((card) => (
                     <div key={card.id} draggable className="hov-border"
+                      onClick={() => p.onOpenPeek(card.id)}
                       onDragStart={() => p.onCardDragStart(card.id)} onDragEnd={p.onCardDragEnd}
                       style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg-layer-2)', borderRadius: 8, padding: 12, boxShadow: 'var(--shadow-raised-100)', cursor: 'grab', display: 'flex', flexDirection: 'column', gap: 6, opacity: card.dragOpacity }}>
                       <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--txt-tertiary)' }}>{card.key}</span>
                       <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt-primary)', lineHeight: 1.4 }}>{card.name}</span>
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingTop: 4 }}>
-                        <button onClick={() => p.onCyclePriority(card.id)} title="Priority — click to change" className="hov-layer"
+                        <button onClick={(e) => { e.stopPropagation(); p.onCyclePriority(card.id) }} title="Priority — click to change" className="hov-layer"
                           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 20, width: 22, borderRadius: 4, border: '1px solid var(--border-strong)', background: 'transparent', color: card.priorityColor, cursor: 'pointer' }}>
                           <Icon path={card.priorityPath} size={11} sw={2.4} />
                         </button>

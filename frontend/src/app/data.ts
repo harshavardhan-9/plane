@@ -15,12 +15,43 @@ export interface Issue {
   assignee: AssigneeKey
   due: string
   labels: LabelKey[]
+  desc?: string
+}
+
+export interface Cycle {
+  id: number
+  name: string
+  range: string
+  progress: number
+  group: 'active' | 'upcoming' | 'completed'
+}
+
+export interface Comment { who: AssigneeKey; text: string; time: string }
+
+export interface Notification {
+  id: number
+  who: AssigneeKey
+  action: string
+  target: string
+  snippet: string
+  time: string
+  read: boolean
+}
+
+export interface Member {
+  name: string
+  email: string
+  role: string
+  initial: string
+  bg: string
+  roleBg: string
+  roleColor: string
 }
 
 export interface RowLabel { name: string; bg: string; color: string }
 
 export interface WorkRow {
-  id: number
+  id: string
   key: string
   name: string
   stateLabel: string
@@ -36,7 +67,7 @@ export interface WorkRow {
 }
 
 export interface WorkGroup {
-  key: StateKey
+  key: string
   label: string
   color: string
   count: number
@@ -99,7 +130,40 @@ export const ICONS = {
   calendar: 'M8 2v4 M16 2v4 M3 10h18 M5 4 h14 a2 2 0 0 1 2 2 v14 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 V6 a2 2 0 0 1 2 -2 z',
   sun: 'M12 8 a4 4 0 1 1 0 8 a4 4 0 0 1 0 -8 z M12 2v2 M12 20v2 M4.93 4.93l1.41 1.41 M17.66 17.66l1.41 1.41 M2 12h2 M20 12h2 M6.34 17.66l-1.41 1.41 M19.07 4.93l-1.41 1.41',
   moon: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z',
+  chevronLeft: 'm15 18-6-6 6-6',
+  close: 'M18 6 6 18 M6 6l12 12',
+  check: 'M20 6 9 17l-5-5',
+  alert: 'M12 3 a9 9 0 1 1 0 18 a9 9 0 0 1 0 -18 z M12 8v4 M12 16h.01',
 }
+
+export const CYCLES: Cycle[] = [
+  { id: 3, name: 'Cycle 3 — Polish & launch', range: 'Jul 21 – Aug 3', progress: 0, group: 'upcoming' },
+  { id: 2, name: 'Cycle 2 — Core features', range: 'Jul 7 – Jul 20', progress: 45, group: 'active' },
+  { id: 1, name: 'Cycle 1 — Foundation', range: 'Jun 23 – Jul 6', progress: 100, group: 'completed' },
+]
+
+export const cycleOf = (it: Issue): number => {
+  if (it.state === 'completed' || it.state === 'cancelled') return 1
+  if (it.state === 'started' || it.state === 'unstarted') return 2
+  return 3
+}
+
+export const SEED_COMMENTS: Record<number, Comment[]> = {
+  7: [{ who: 'S', text: 'Blocked on the drop-target refactor — see branch feat/dnd.', time: '2h ago' }],
+}
+
+export const SEED_NOTIFICATIONS: Notification[] = [
+  { id: 1, who: 'S', action: 'commented on', target: 'PERS-11 · Drag-and-drop ordering in board view', snippet: 'Blocked on the drop-target refactor — see branch feat/dnd.', time: '2h', read: false },
+  { id: 2, who: 'R', action: 'assigned you', target: 'PERS-14 · Cycle burndown chart endpoint', snippet: '', time: '5h', read: false },
+  { id: 3, who: 'S', action: 'marked Done', target: 'PERS-3 · Auth screens — email and password flow', snippet: '', time: '1d', read: true },
+  { id: 4, who: 'R', action: 'mentioned you in', target: 'PERS-8 · Spike: realtime sync via websockets', snippet: '@Aarav should we park this until Cycle 3?', time: '2d', read: true },
+]
+
+export const SEED_MEMBERS: Member[] = [
+  { name: 'Aarav Mehta', email: 'aarav@personal.dev', role: 'Admin', initial: 'A', bg: 'oklch(0.5527 0.1361 288.8)', roleBg: 'var(--accent-subtle)', roleColor: 'var(--accent-primary)' },
+  { name: 'Sana Kapoor', email: 'sana@personal.dev', role: 'Member', initial: 'S', bg: 'oklch(0.5704 0.1574 345.25)', roleBg: 'var(--bg-layer-1)', roleColor: 'var(--txt-tertiary)' },
+  { name: 'Rohit Iyer', email: 'rohit@personal.dev', role: 'Member', initial: 'R', bg: 'oklch(0.5883 0.1413 149.06)', roleBg: 'var(--bg-layer-1)', roleColor: 'var(--txt-tertiary)' },
+]
 
 export const SEED_ISSUES: Issue[] = [
   { id: 1, seq: 4, name: 'Design workspace switcher dropdown', state: 'backlog', priority: 'low', assignee: 'S', due: 'Jul 18', labels: ['design'] },

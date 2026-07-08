@@ -20,6 +20,7 @@ export interface Workspace {
   description: string | null
   logoUrl: string | null
   role: string
+  memberCount?: number
 }
 
 export interface Project {
@@ -31,6 +32,8 @@ export interface Project {
   network: 'PUBLIC' | 'SECRET'
   emoji: string | null
   coverImage: string | null
+  role?: string
+  memberCount?: number
 }
 
 export interface State {
@@ -66,4 +69,75 @@ export interface ApiError {
   status: number
   error: string
   message: string
+}
+
+export interface WorkspaceMember {
+  memberId: string
+  userId: string
+  email: string
+  displayName: string
+  avatarUrl: string | null
+  role: string
+}
+
+export interface IssueComment {
+  id: string
+  issueId: string
+  authorId: string
+  body: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface IssueActivity {
+  id: string
+  issueId: string
+  actorId: string
+  verb: string
+  field: string | null
+  oldValue: string | null
+  newValue: string | null
+  createdAt: string
+}
+
+export interface CycleProgress {
+  total: number
+  completed: number
+  percentage: number
+}
+
+export interface ApiCycle {
+  id: string
+  projectId: string
+  workspaceId: string
+  name: string
+  description: string | null
+  status: string
+  startDate: string | null
+  endDate: string | null
+  progress: CycleProgress
+}
+
+export interface BurndownPoint {
+  date: string
+  total: number
+  completed: number
+  remaining: number
+}
+
+export interface SearchResult {
+  id: string
+  projectId: string
+  workspaceId: string
+  title: string
+  description: string | null
+  priority: string
+  sequence: number
+}
+
+export interface Label {
+  id: string
+  projectId: string
+  name: string
+  color: string
 }
