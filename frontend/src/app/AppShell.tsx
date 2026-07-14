@@ -7,7 +7,7 @@ import { getTheme, toggleTheme as applyToggleTheme } from '../store/theme'
 import { getWorkspaces, getMembers, inviteMember } from '../api/workspaces'
 import { getProjects, createProject, getStates, getLabels } from '../api/projects'
 import { getIssues, createIssue, updateIssue, getComments, addComment, getActivity } from '../api/issues'
-import { getCycles, getCycleIssues, getBurndown } from '../api/cycles'
+import { getCycles, getCycleIssues, getBurndown, createCycle } from '../api/cycles'
 import { searchIssues } from '../api/search'
 import { getDashboard } from '../api/analytics'
 import type { Issue, State, WorkspaceMember } from '../types'
@@ -15,6 +15,7 @@ import { ICONS, PRIORITIES, PRIORITY_ORDER, SEED_NOTIFICATIONS, type PriorityKey
 import Icon from './Icon'
 import PeekPanel, { type PeekData } from './PeekPanel'
 import CreateProjectModal from './CreateProjectModal'
+import CreateCycleModal from './CreateCycleModal'
 import HomeView from './views/HomeView'
 import WorkItemsView from './views/WorkItemsView'
 import CyclesView, { type CycleListGroup } from './views/CyclesView'
@@ -52,6 +53,11 @@ export default function AppShell() {
   const [peekId, setPeekId] = useState<string | null>(null)
   const [commentText, setCommentText] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [cycleCreateOpen, setCycleCreateOpen] = useState(false)
+  const [cycleName, setCycleName] = useState('')
+  const [cycleStartDate, setCycleStartDate] = useState('')
+  const [cycleEndDate, setCycleEndDate] = useState('')
+  const [cycleDesc, setCycleDesc] = useState('')
   const [projName, setProjName] = useState('')
   const [projIdent, setProjIdent] = useState('')
   const [projDesc, setProjDesc] = useState('')
@@ -161,6 +167,19 @@ export default function AppShell() {
     },
   })
 
+  const createCycleM = useMutation({
+    mutationFn: () => createCycle(slug, projectId!, {
+      name: cycleName.trim(),
+      description: cycleDesc || undefined,
+      startDate: cycleStartDate || undefined,
+      endDate: cycleEndDate || undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cycles', slug, projectId] })
+      setCycleCreateOpen(false)
+    },
+  })
+
   const addCommentM = useMutation({
     mutationFn: (body: string) => addComment(slug, projectId!, peekId!, body),
     onSuccess: () => {
@@ -263,6 +282,7 @@ export default function AppShell() {
 
   const identAuto = projName.replace(/[^a-zA-Z]/g, '').slice(0, 4).toUpperCase()
   const openCreate = () => { setCreateOpen(true); setProjName(''); setProjIdent(''); setProjDesc('') }
+  const openCycleCreate = () => { setCycleCreateOpen(true); setCycleName(''); setCycleStartDate(''); setCycleEndDate(''); setCycleDesc('') }
 
   const openQuickAddTodo = () => {
     if (!defaultStateId) return
@@ -655,7 +675,7 @@ export default function AppShell() {
                 searchResults={searchResults} onSelectSearchResult={onSelectSearchResult}
               />
             )}
-            {view === 'cycles' && <CyclesView groups={cycleListGroups} userInitial={userInitial} onOpen={(id) => { setActiveCycleId(id); setView('cycle-detail') }} />}
+            {view === 'cycles' && <CyclesView groups={cycleListGroups} userInitial={userInitial} onOpen={(id) => { setActiveCycleId(id); setView('cycle-detail') }} onCreate={openCycleCreate} />}
             {view === 'cycle-detail' && cd && (
               <CycleDetailView cd={cd} onBack={() => { setView('cycles'); setActiveCycleId(null) }} onOpenPeek={setPeekId} />
             )}
@@ -702,6 +722,15 @@ export default function AppShell() {
           error={createProjectM.isError ? ((createProjectM.error as any)?.response?.data?.message ?? 'Failed to create project') : undefined}
           onName={setProjName} onIdent={(v) => setProjIdent(v.toUpperCase().slice(0, 5))} onDesc={setProjDesc}
           onClose={() => setCreateOpen(false)} onCreate={() => { if (projName.trim()) createProjectM.mutate() }}
+        />
+      )}
+      {cycleCreateOpen && (
+        <CreateCycleModal
+          name={cycleName} startDate={cycleStartDate} endDate={cycleEndDate} desc={cycleDesc}
+          pending={createCycleM.isPending}
+          error={createCycleM.isError ? ((createCycleM.error as any)?.response?.data?.message ?? 'Failed to create cycle') : undefined}
+          onName={setCycleName} onStartDate={setCycleStartDate} onEndDate={setCycleEndDate} onDesc={setCycleDesc}
+          onClose={() => setCycleCreateOpen(false)} onCreate={() => { if (cycleName.trim()) createCycleM.mutate() }}
         />
       )}
     </div>

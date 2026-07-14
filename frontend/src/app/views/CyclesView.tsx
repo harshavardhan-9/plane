@@ -15,19 +15,38 @@ interface Props {
   groups: CycleListGroup[]
   userInitial: string
   onOpen: (id: string) => void
+  onCreate: () => void
 }
 
-export default function CyclesView({ groups, userInitial, onOpen }: Props) {
+const headerRow = (onCreate: () => void) => (
+  <div style={{ height: 44, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 21px', borderBottom: '1px solid var(--border-subtle)' }}>
+    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt-primary)' }}>Cycles</span>
+    <button onClick={onCreate} className="hov-accent"
+      style={{ display: 'flex', alignItems: 'center', gap: 6, height: 28, padding: '0 10px', borderRadius: 6, border: 'none', background: 'var(--accent-primary)', color: 'var(--txt-on-color)', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>
+      <span style={{ display: 'inline-flex', width: 13, height: 13 }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ width: '100%', height: '100%' }}><path d="M5 12h14 M12 5v14" /></svg>
+      </span>
+      New cycle
+    </button>
+  </div>
+)
+
+export default function CyclesView({ groups, userInitial, onOpen, onCreate }: Props) {
   const total = groups.reduce((n, g) => n + g.count, 0)
   if (total === 0) {
     return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ fontSize: 13, color: 'var(--txt-placeholder)' }}>No cycles yet.</div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {headerRow(onCreate)}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontSize: 13, color: 'var(--txt-placeholder)' }}>No cycles yet.</div>
+        </div>
       </div>
     )
   }
   return (
-    <div style={{ flex: 1, overflowY: 'auto' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      {headerRow(onCreate)}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
       {groups.filter((g) => g.count > 0).map((cg) => (
         <div key={cg.label}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 21px', background: 'var(--bg-surface-2)', position: 'sticky', top: 0, zIndex: 2 }}>
@@ -61,6 +80,7 @@ export default function CyclesView({ groups, userInitial, onOpen }: Props) {
           ))}
         </div>
       ))}
+      </div>
     </div>
   )
 }
