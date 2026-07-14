@@ -1,16 +1,27 @@
 import Icon from '../Icon'
+import type { DashboardStats } from '../../types'
 
 export interface AssignedRow { id: string; key: string; name: string; due: string; stateColor: string }
 export interface RecentRow { name: string; meta: string; iconPath: string; go: () => void }
 
 interface Props {
   userName: string
+  stats: DashboardStats | null
   assigned: AssignedRow[]
   recents: RecentRow[]
   onOpenPeek: (id: string) => void
 }
 
-export default function HomeView({ userName, assigned, recents, onOpenPeek }: Props) {
+const STAT_LABELS: [keyof DashboardStats, string][] = [
+  ['myOpenIssues', 'My open issues'],
+  ['overdueIssues', 'Overdue'],
+  ['activeCycles', 'Active cycles'],
+  ['totalIssues', 'Total issues'],
+  ['completedIssues', 'Completed'],
+  ['completionPercentage', 'Completion %'],
+]
+
+export default function HomeView({ userName, stats, assigned, recents, onOpenPeek }: Props) {
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
@@ -22,6 +33,19 @@ export default function HomeView({ userName, assigned, recents, onOpenPeek }: Pr
           <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--txt-primary)' }}>{greeting}, {userName}</div>
           <div style={{ fontSize: 13, color: 'var(--txt-tertiary)' }}>{todayLabel}</div>
         </div>
+
+        {stats && (
+          <div style={{ display: 'flex', gap: 1, border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden' }}>
+            {STAT_LABELS.map(([key, label]) => (
+              <div key={key} style={{ flex: 1, padding: '12px 14px', background: 'var(--bg-surface-1)', borderRight: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--txt-primary)' }}>
+                  {key === 'completionPercentage' ? `${stats[key].toFixed(0)}%` : stats[key]}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--txt-tertiary)', marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--txt-primary)' }}>Assigned to you</div>

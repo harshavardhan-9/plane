@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getStoredUser, clearAuth } from '../store/auth'
@@ -9,31 +9,20 @@ import { getProjects, createProject, getStates, getLabels } from '../api/project
 import { getIssues, createIssue, updateIssue, getComments, addComment, getActivity } from '../api/issues'
 import { getCycles, getCycleIssues, getBurndown } from '../api/cycles'
 import { searchIssues } from '../api/search'
+import { getDashboard } from '../api/analytics'
 import type { Issue, State, WorkspaceMember } from '../types'
 import { ICONS, PRIORITIES, PRIORITY_ORDER, SEED_NOTIFICATIONS, type PriorityKey, type Notification, type Member } from './data'
 import Icon from './Icon'
 import PeekPanel, { type PeekData } from './PeekPanel'
 import CreateProjectModal from './CreateProjectModal'
-import CommandPalette, { type PaletteGroup } from './CommandPalette'
 import HomeView from './views/HomeView'
 import WorkItemsView from './views/WorkItemsView'
 import CyclesView, { type CycleListGroup } from './views/CyclesView'
 import CycleDetailView, { type CycleDetail } from './views/CycleDetailView'
 import InboxView from './views/InboxView'
 import SettingsView from './views/SettingsView'
-import PlaceholderView from './views/PlaceholderView'
 
-type View =
-  | 'home' | 'inbox' | 'work-items' | 'cycles' | 'cycle-detail' | 'modules' | 'pages'
-  | 'views-v' | 'analytics' | 'intake' | 'settings'
-
-const PLACEHOLDERS: Record<string, { title: string; desc: string; icon: keyof typeof ICONS }> = {
-  modules: { title: 'No modules yet', desc: 'Group work items into modules to track larger bodies of work across cycles.', icon: 'modules' },
-  pages: { title: 'Write it down with Pages', desc: 'Capture specs, notes and ideas alongside your work items.', icon: 'pages' },
-  'views-v': { title: 'No saved views', desc: 'Save filter combinations as views to get back to them in one click.', icon: 'views' },
-  analytics: { title: 'Analytics', desc: 'Trends across your projects will appear here once there is enough activity.', icon: 'analytics' },
-  intake: { title: 'Intake is quiet', desc: 'Requests from guests and forms land here for triage.', icon: 'intake' },
-}
+type View = 'home' | 'inbox' | 'work-items' | 'cycles' | 'cycle-detail' | 'settings'
 
 const GROUP_ORDER = ['BACKLOG', 'UNSTARTED', 'STARTED', 'COMPLETED', 'CANCELLED']
 const MEMBER_COLORS = ['oklch(0.5527 0.1361 288.8)', 'oklch(0.5704 0.1574 345.25)', 'oklch(0.5883 0.1413 149.06)', 'oklch(0.6802 0.1633 50.67)', 'oklch(0.579 0.1807 262.31)']
@@ -54,7 +43,6 @@ export default function AppShell() {
 
   const [theme, setThemeState] = useState(getTheme)
   const [view, setView] = useState<View>('work-items')
-  const [layout, setLayout] = useState<'list' | 'board'>('list')
   const [projectExpanded, setProjectExpanded] = useState(true)
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [quickAddGroup, setQuickAddGroup] = useState<string | null>(null)
@@ -67,21 +55,17 @@ export default function AppShell() {
   const [projName, setProjName] = useState('')
   const [projIdent, setProjIdent] = useState('')
   const [projDesc, setProjDesc] = useState('')
-  const [paletteOpen, setPaletteOpen] = useState(false)
-  const [paletteQuery, setPaletteQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const [activeCycleId, setActiveCycleId] = useState<string | null>(null)
-  const [wsOpen, setWsOpen] = useState(false)
   const [inviteText, setInviteText] = useState('')
   const [pendingInvites, setPendingInvites] = useState<Member[]>([])
   const [notifications, setNotifications] = useState<Notification[]>(SEED_NOTIFICATIONS)
-  const [groupBy, setGroupBy] = useState<'state' | 'priority' | 'assignee'>('state')
-  const [priorityFilter, setPriorityFilter] = useState<Set<PriorityKey>>(new Set())
-  const [assigneeFilter, setAssigneeFilter] = useState<Set<string>>(new Set())
 
   // ─── Queries ───
   const { data: workspaces = [] } = useQuery({ queryKey: ['workspaces'], queryFn: getWorkspaces })
   const { data: projects = [], isLoading: projectsLoading } = useQuery({ queryKey: ['projects', slug], queryFn: () => getProjects(slug), enabled: !!slug })
   const { data: wsMembers = [] } = useQuery({ queryKey: ['members', slug], queryFn: () => getMembers(slug), enabled: !!slug })
+  const { data: dashboard = null } = useQuery({ queryKey: ['dashboard', slug], queryFn: () => getDashboard(slug), enabled: !!slug })
 
   const projectId = selectedProjectId ?? projects[0]?.id ?? null
   const project = projects.find((p) => p.id === projectId) ?? null
@@ -102,12 +86,13 @@ export default function AppShell() {
     enabled: !!projectId && !!peekId,
   })
 
-  const q = paletteQuery.trim()
-  const { data: searchResults = [] } = useQuery({
-    queryKey: ['search', slug, q],
-    queryFn: () => searchIssues(slug, q),
-    enabled: !!slug && paletteOpen && q.length > 0,
+  const sq = searchQuery.trim()
+  const { data: searchResultsRaw = [] } = useQuery({
+    queryKey: ['search', slug, sq],
+    queryFn: () => searchIssues(slug, sq),
+    enabled: !!slug && sq.length > 0,
   })
+  const searchResults = searchResultsRaw.map((r) => ({ id: r.id, key: `${project?.identifier ?? ''}-${r.sequence}`, title: r.title }))
 
   const { data: cycleIssues = [] } = useQuery({
     queryKey: ['cycle-issues', slug, projectId, activeCycleId],
@@ -138,8 +123,7 @@ export default function AppShell() {
   })
 
   const createIssueM = useMutation({
-    mutationFn: (data: { title: string; stateId?: string; priority?: string; assigneeIds?: string[] }) =>
-      createIssue(slug, projectId!, data),
+    mutationFn: (data: { title: string; stateId?: string }) => createIssue(slug, projectId!, data),
     onMutate: async (data) => {
       await qc.cancelQueries({ queryKey: ['issues', slug, projectId] })
       const tempSeq = (qc.getQueryData<Issue[]>(['issues', slug, projectId]) ?? [])
@@ -151,12 +135,12 @@ export default function AppShell() {
         title: data.title,
         description: null,
         stateId: data.stateId ?? null,
-        priority: (data.priority ?? 'NONE') as Issue['priority'],
+        priority: 'NONE',
         sequence: tempSeq,
         parentId: null,
         dueDate: null,
         completedAt: null,
-        assigneeIds: data.assigneeIds ?? [],
+        assigneeIds: [],
         labelIds: [],
         identifier: `${project?.identifier ?? '…'}-${tempSeq}`,
         createdAt: new Date().toISOString(),
@@ -208,23 +192,8 @@ export default function AppShell() {
     editTimer.current = setTimeout(() => updateIssueM.mutate({ id, patch }), 600)
   }
 
-  // ─── Global keys ───
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        setPaletteOpen((o) => !o)
-        setPaletteQuery('')
-      } else if (e.key === 'Escape') {
-        setPaletteOpen(false); setPeekId(null); setCreateOpen(false); setWsOpen(false)
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
   const changeView = (v: View) => {
-    setView(v); setQuickAddGroup(null); setPeekId(null); setPaletteOpen(false); setWsOpen(false); setCreateOpen(false)
+    setView(v); setQuickAddGroup(null); setPeekId(null); setCreateOpen(false)
   }
 
   const handleLogout = async () => {
@@ -273,24 +242,12 @@ export default function AppShell() {
 
   const defaultStateId = states.find((s) => s.defaultState)?.id ?? orderedStates[1]?.id ?? orderedStates[0]?.id
 
-  // Group key encodes which dimension is grouping: raw state id, "priority:xxx", or "assignee:xxx"|"assignee:unassigned"
-  const patchForGroupKey = (key: string): { stateId?: string; priority?: string; assigneeIds?: string[] } => {
-    if (groupBy === 'state') return { stateId: key }
-    if (key.startsWith('priority:')) return { priority: key.slice('priority:'.length).toUpperCase() }
-    if (key.startsWith('assignee:')) {
-      const id = key.slice('assignee:'.length)
-      return { assigneeIds: id === 'unassigned' ? [] : [id] }
-    }
-    return {}
-  }
-
-  const openQuickAdd = (group: string) => { setQuickAddGroup(group); setQuickAddText('') }
+  const openQuickAdd = (stateId: string) => { setQuickAddGroup(stateId); setQuickAddText('') }
 
   const commitQuickAdd = () => {
     const title = quickAddText.trim()
     if (!title || !quickAddGroup) { setQuickAddGroup(null); setQuickAddText(''); return }
-    const groupPatch = patchForGroupKey(quickAddGroup)
-    createIssueM.mutate({ title, stateId: groupPatch.stateId ?? defaultStateId, priority: groupPatch.priority, assigneeIds: groupPatch.assigneeIds })
+    createIssueM.mutate({ title, stateId: quickAddGroup })
     setQuickAddText('')
   }
 
@@ -299,29 +256,18 @@ export default function AppShell() {
     if (e.key === 'Escape') { setQuickAddGroup(null); setQuickAddText('') }
   }
 
-  const onColDrop = (group: string) => {
-    if (dragId != null) updateIssueM.mutate({ id: dragId, patch: patchForGroupKey(group) })
+  const onColDrop = (stateId: string) => {
+    if (dragId != null) updateIssueM.mutate({ id: dragId, patch: { stateId } })
     setDragId(null); setDragOverGroup(null)
   }
 
   const identAuto = projName.replace(/[^a-zA-Z]/g, '').slice(0, 4).toUpperCase()
-  const openCreate = () => { setCreateOpen(true); setProjName(''); setProjIdent(''); setProjDesc(''); setWsOpen(false); setPaletteOpen(false) }
+  const openCreate = () => { setCreateOpen(true); setProjName(''); setProjIdent(''); setProjDesc('') }
 
-  const toggleInSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (v: string) =>
-    setter((s) => { const n = new Set(s); if (n.has(v)) n.delete(v); else n.add(v); return n })
-  const togglePriorityFilter = (p: PriorityKey) =>
-    setPriorityFilter((s) => { const n = new Set(s); if (n.has(p)) n.delete(p); else n.add(p); return n })
-  const toggleAssigneeFilter = toggleInSet(setAssigneeFilter)
-  const clearFilters = () => { setPriorityFilter(new Set()); setAssigneeFilter(new Set()) }
-
-  const filteredIssues = issues.filter((it) => {
-    if (priorityFilter.size > 0 && !priorityFilter.has(priorityKey(it.priority))) return false
-    if (assigneeFilter.size > 0) {
-      const ids = it.assigneeIds.length > 0 ? it.assigneeIds : ['unassigned']
-      if (!ids.some((id) => assigneeFilter.has(id))) return false
-    }
-    return true
-  })
+  const openQuickAddTodo = () => {
+    if (!defaultStateId) return
+    setView('work-items'); setQuickAddGroup(defaultStateId); setQuickAddText('')
+  }
 
   // ─── Row mapping ───
   const labelChips = (ids: string[]) =>
@@ -349,50 +295,18 @@ export default function AppShell() {
     }
   }
 
-  interface GroupDef { key: string; label: string; color: string; matches: (it: Issue) => boolean }
-
-  let groupDefs: GroupDef[]
-  if (groupBy === 'priority') {
-    groupDefs = [...PRIORITY_ORDER].reverse().map((pk) => ({
-      key: 'priority:' + pk,
-      label: pk.charAt(0).toUpperCase() + pk.slice(1),
-      color: PRIORITIES[pk].color,
-      matches: (it) => priorityKey(it.priority) === pk,
-    }))
-  } else if (groupBy === 'assignee') {
-    const opts = [...wsMembers.map((m, i) => ({ id: m.userId, name: m.displayName, color: MEMBER_COLORS[i % MEMBER_COLORS.length] })),
-      { id: 'unassigned', name: 'Unassigned', color: UNASSIGNED_BG }]
-    groupDefs = opts.map((o) => ({
-      key: 'assignee:' + o.id,
-      label: o.name,
-      color: o.color,
-      matches: (it) => (o.id === 'unassigned' ? it.assigneeIds.length === 0 : it.assigneeIds.includes(o.id)),
-    }))
-  } else {
-    groupDefs = orderedStates.map((st) => ({ key: st.id, label: st.name, color: st.color, matches: (it) => it.stateId === st.id }))
-  }
-
-  const groups = groupDefs.map((gd) => {
-    const items = filteredIssues.filter(gd.matches).map(rowOf)
+  const groups = orderedStates.map((st) => {
+    const items = issues.filter((it) => it.stateId === st.id).map(rowOf)
     return {
-      key: gd.key,
-      label: gd.label,
-      color: gd.color,
+      key: st.id,
+      label: st.name,
+      color: st.color,
       count: items.length,
       items,
-      isQuickAdd: quickAddGroup === gd.key,
-      dropBg: dragOverGroup === gd.key ? 'var(--layer-transparent-active)' : 'transparent',
+      isQuickAdd: quickAddGroup === st.id,
+      dropBg: dragOverGroup === st.id ? 'var(--layer-transparent-active)' : 'transparent',
     }
   })
-
-  const openQuickAddTodo = () => {
-    const key = groupBy === 'state' ? defaultStateId : groups[0]?.key
-    if (!key) return
-    setView('work-items'); setLayout('list'); setQuickAddGroup(key); setQuickAddText('')
-  }
-
-  const assigneeOptions = [...wsMembers.map((m) => ({ id: m.userId, name: m.displayName })), { id: 'unassigned', name: 'Unassigned' }]
-  const activeFilterCount = priorityFilter.size + assigneeFilter.size
 
   const nextSeq = issues.reduce((mx, it) => Math.max(mx, it.sequence), 0) + 1
   const nextKey = `${project?.identifier ?? 'ITEM'}-${nextSeq}`
@@ -436,42 +350,13 @@ export default function AppShell() {
     return { text, time: fmtDate(a.createdAt) }
   })
 
-  // ─── Palette ───
-  const stColorOf = (issueId: string) => {
-    const it = issues.find((i) => i.id === issueId)
-    return states.find((s) => s.id === it?.stateId)?.color ?? '#d9d9d9'
+  const onSelectSearchResult = (id: string) => {
+    setSearchQuery('')
+    const result = searchResultsRaw.find((r) => r.id === id)
+    if (result && result.projectId !== projectId) setSelectedProjectId(result.projectId)
+    setView('work-items')
+    setPeekId(id)
   }
-  const issueRows = (q.length > 0
-    ? searchResults.map((r) => ({ id: r.id, key: `${project?.identifier ?? ''}-${r.sequence}`, title: r.title, projectId: r.projectId }))
-    : issues.slice(0, 6).map((it) => ({ id: it.id, key: it.identifier, title: it.title, projectId: it.projectId }))
-  ).map((r) => ({
-    key: r.key,
-    label: r.title,
-    color: stColorOf(r.id),
-    showDot: true,
-    showKey: true,
-    onClick: () => {
-      setPaletteOpen(false)
-      if (r.projectId !== projectId) setSelectedProjectId(r.projectId)
-      setView('work-items')
-      setPeekId(r.id)
-    },
-  }))
-  const ql = q.toLowerCase()
-  const navRows = ([['Home', 'home'], ['Work items', 'work-items'], ['Cycles', 'cycles'], ['Inbox', 'inbox'], ['Workspace settings', 'settings']] as [string, View][])
-    .filter((d) => !ql || ('go to ' + d[0]).toLowerCase().includes(ql))
-    .map((d) => ({ key: '', label: 'Go to ' + d[0], color: 'transparent', showDot: false, showKey: false, onClick: () => changeView(d[1]) }))
-  const cmdRows = [
-    { label: 'Create new work item', act: () => { setPaletteOpen(false); openQuickAddTodo() } },
-    { label: 'Create new project', act: openCreate },
-  ]
-    .filter((c) => !ql || c.label.toLowerCase().includes(ql))
-    .map((c) => ({ key: '', label: c.label, color: 'transparent', showDot: false, showKey: false, onClick: c.act }))
-  const paletteGroups: PaletteGroup[] = [
-    { label: 'Work items', rows: issueRows },
-    { label: 'Navigation', rows: navRows },
-    { label: 'Commands', rows: cmdRows },
-  ].filter((g) => g.rows.length > 0)
 
   // ─── Inbox (mock until notifications backend lands) ───
   const MOCK_ACTORS: Record<string, { name: string; bg: string }> = {
@@ -566,31 +451,20 @@ export default function AppShell() {
     { key: 'home', label: 'Home', icon: 'home' },
     { key: 'inbox', label: 'Inbox', icon: 'inbox' },
     { key: 'work-items', label: 'Projects', icon: 'projects' },
-    { key: 'views-v', label: 'Views', icon: 'views' },
-    { key: 'analytics', label: 'Analytics', icon: 'analytics' },
   ]
   const workspaceNav: { key: View; label: string; icon: keyof typeof ICONS }[] = [
     { key: 'home', label: 'Home', icon: 'home' },
     { key: 'inbox', label: 'Inbox', icon: 'inbox' },
-    { key: 'views-v', label: 'Views', icon: 'views' },
-    { key: 'analytics', label: 'Analytics', icon: 'analytics' },
   ]
   const projectNav: { key: View; label: string; icon: keyof typeof ICONS }[] = [
     { key: 'work-items', label: 'Work items', icon: 'workItems' },
     { key: 'cycles', label: 'Cycles', icon: 'cycles' },
-    { key: 'modules', label: 'Modules', icon: 'modules' },
-    { key: 'pages', label: 'Pages', icon: 'pages' },
-    { key: 'intake', label: 'Intake', icon: 'intake' },
   ]
   const tabDefs: { key: View; label: string }[] = [
     { key: 'work-items', label: 'Work items' },
     { key: 'cycles', label: 'Cycles' },
-    { key: 'modules', label: 'Modules' },
-    { key: 'pages', label: 'Pages' },
-    { key: 'intake', label: 'Intake' },
   ]
 
-  const ph = PLACEHOLDERS[view]
   const tabActive = (key: View) => view === key || (key === 'cycles' && view === 'cycle-detail')
 
   const projBadge = (name: string, active: boolean) => (
@@ -642,18 +516,11 @@ export default function AppShell() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0 12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 8px' }}>
             <span style={{ fontSize: 16, fontWeight: 500, color: 'var(--txt-primary)' }}>Projects</span>
-            <span style={{ color: 'var(--txt-tertiary)', cursor: 'pointer', display: 'inline-flex' }}><Icon path={ICONS.hamburger} size={16} /></span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button onClick={() => { setPaletteOpen(true); setPaletteQuery('') }} className="hov-border" style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, height: 30, padding: '0 10px', borderRadius: 6, border: '1px solid var(--border-strong)', background: 'var(--bg-surface-1)', color: 'var(--txt-placeholder)', fontSize: 13, cursor: 'pointer', boxSizing: 'border-box' }}>
-              <Icon path={ICONS.search} size={14} sw={2} /> Search
-              <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 500, color: 'var(--txt-placeholder)', border: '1px solid var(--border-subtle)', borderRadius: 4, padding: '1px 5px' }}>Ctrl K</span>
-            </button>
-            <button onClick={openQuickAddTodo} title="New work item" className="hov-accent"
-              style={{ width: 30, height: 30, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'var(--accent-primary)', color: 'var(--txt-on-color)', cursor: 'pointer' }}>
-              <Icon path={ICONS.plus} size={16} sw={2} />
-            </button>
-          </div>
+          <button onClick={openQuickAddTodo} title="New work item" className="hov-accent"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 30, borderRadius: 6, border: 'none', background: 'var(--accent-primary)', color: 'var(--txt-on-color)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
+            <Icon path={ICONS.plus} size={16} sw={2} /> New work item
+          </button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -733,45 +600,9 @@ export default function AppShell() {
         {/* Header */}
         <div style={{ height: 52, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '0 21px', borderBottom: '1px solid var(--border-subtle)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
-            <div style={{ position: 'relative', flexShrink: 0 }}>
-              <button onClick={() => setWsOpen((o) => !o)} className="hov-layer" style={{ display: 'flex', alignItems: 'center', gap: 6, border: 'none', background: 'transparent', borderRadius: 6, padding: '4px 6px', cursor: 'pointer', color: 'var(--txt-primary)', fontSize: 13, fontWeight: 500 }}>
-                {projBadge(project?.name ?? slug, true)} {project?.name ?? slug}
-                <span style={{ color: 'var(--txt-placeholder)', display: 'inline-flex' }}><Icon path={ICONS.chevronDown} size={13} sw={2} /></span>
-              </button>
-              {wsOpen && (
-                <>
-                  <div onClick={() => setWsOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-                  <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 41, width: 260, background: 'var(--bg-surface-1)', border: '1px solid var(--border-subtle)', borderRadius: 8, boxShadow: 'var(--shadow-overlay-200)', padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <div style={{ padding: '6px 8px 4px 8px', fontSize: 11, fontWeight: 600, color: 'var(--txt-placeholder)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Workspaces</div>
-                    {workspaces.map((ws) => {
-                      const current = ws.slug === slug
-                      return (
-                        <button key={ws.id} onClick={() => { setWsOpen(false); if (!current) { setSelectedProjectId(null); navigate(`/${ws.slug}`) } }} className="hov-layer"
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 8px', borderRadius: 6, border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' }}>
-                          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 5, background: 'var(--accent-subtle)', color: 'var(--accent-primary)', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{(ws.name[0] || 'W').toUpperCase()}</span>
-                          <span style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-                            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--txt-primary)' }}>{ws.name}</span>
-                            <span style={{ fontSize: 11, color: 'var(--txt-placeholder)', textTransform: 'capitalize' }}>{ws.role.toLowerCase()}{ws.memberCount ? ` · ${ws.memberCount} member${ws.memberCount > 1 ? 's' : ''}` : ''}</span>
-                          </span>
-                          <span style={{ display: 'inline-flex', width: 14, height: 14, color: 'var(--accent-primary)', opacity: current ? 1 : 0 }}>
-                            <Icon path={ICONS.check} size={14} sw={2.4} />
-                          </span>
-                        </button>
-                      )
-                    })}
-                    <div style={{ borderTop: '1px solid var(--border-subtle)', margin: '4px 0' }} />
-                    <button onClick={openCreate} className="hov-layer"
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--txt-secondary)', fontSize: 13, fontWeight: 500, cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' }}>
-                      <Icon path={ICONS.plus} size={14} sw={2} /> Create project
-                    </button>
-                    <button onClick={() => changeView('settings')} className="hov-layer"
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '7px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--txt-secondary)', fontSize: 13, fontWeight: 500, cursor: 'pointer', textAlign: 'left', boxSizing: 'border-box' }}>
-                      <Icon path={ICONS.settings} size={14} /> Workspace settings
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
+            <button onClick={() => navigate('/')} title="Switch workspace" className="hov-layer" style={{ display: 'flex', alignItems: 'center', gap: 6, border: 'none', background: 'transparent', borderRadius: 6, padding: '4px 6px', cursor: 'pointer', color: 'var(--txt-primary)', fontSize: 13, fontWeight: 500 }}>
+              {projBadge(project?.name ?? slug, true)} {project?.name ?? slug}
+            </button>
             <div style={{ width: 1, height: 18, background: 'var(--border-strong)' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, overflow: 'hidden' }}>
               {tabDefs.map((tab) => {
@@ -786,9 +617,6 @@ export default function AppShell() {
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <button title="Search" onClick={() => { setPaletteOpen(true); setPaletteQuery('') }} className="hov-layer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--txt-tertiary)', cursor: 'pointer' }}>
-              <Icon path={ICONS.search} size={16} />
-            </button>
             <button onClick={openQuickAddTodo} className="hov-accent" style={{ display: 'flex', alignItems: 'center', gap: 6, height: 30, padding: '0 12px', borderRadius: 6, border: 'none', background: 'var(--accent-primary)', color: 'var(--txt-on-color)', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
               <Icon path={ICONS.plus} size={14} sw={2} /> New work item
             </button>
@@ -813,20 +641,18 @@ export default function AppShell() {
           </div>
         ) : (
           <>
-            {view === 'home' && <HomeView userName={userName} assigned={assigned} recents={recents} onOpenPeek={(id) => { setView('work-items'); setPeekId(id) }} />}
+            {view === 'home' && <HomeView userName={userName} stats={dashboard} assigned={assigned} recents={recents} onOpenPeek={(id) => { setView('work-items'); setPeekId(id) }} />}
             {view === 'work-items' && (
               <WorkItemsView
-                layout={layout} setLayout={setLayout} groups={groups}
+                groups={groups}
                 nextKey={nextKey} quickAddText={quickAddText}
                 onOpenQuickAdd={openQuickAdd} onQuickAddInput={setQuickAddText} onQuickAddKey={onQuickAddKey}
                 onCycleState={cycleStateOf} onCyclePriority={cyclePriorityOf} onOpenPeek={setPeekId}
                 onCardDragStart={setDragId} onCardDragEnd={() => { setDragId(null); setDragOverGroup(null) }}
                 onColDragOver={(g) => { if (dragOverGroup !== g) setDragOverGroup(g) }}
                 onColDragLeave={() => setDragOverGroup(null)} onColDrop={onColDrop}
-                groupBy={groupBy} onGroupByChange={setGroupBy}
-                priorityFilter={priorityFilter} onTogglePriorityFilter={togglePriorityFilter}
-                assigneeOptions={assigneeOptions} assigneeFilter={assigneeFilter} onToggleAssigneeFilter={toggleAssigneeFilter}
-                onClearFilters={clearFilters} activeFilterCount={activeFilterCount}
+                searchQuery={searchQuery} onSearchInput={setSearchQuery}
+                searchResults={searchResults} onSelectSearchResult={onSelectSearchResult}
               />
             )}
             {view === 'cycles' && <CyclesView groups={cycleListGroups} userInitial={userInitial} onOpen={(id) => { setActiveCycleId(id); setView('cycle-detail') }} />}
@@ -850,7 +676,6 @@ export default function AppShell() {
                 onInvite={() => { const email = inviteText.trim(); if (email.includes('@')) inviteM.mutate(email) }}
               />
             )}
-            {ph && <PlaceholderView title={ph.title} desc={ph.desc} iconPath={ICONS[ph.icon]} />}
           </>
         )}
       </div>
@@ -878,9 +703,6 @@ export default function AppShell() {
           onName={setProjName} onIdent={(v) => setProjIdent(v.toUpperCase().slice(0, 5))} onDesc={setProjDesc}
           onClose={() => setCreateOpen(false)} onCreate={() => { if (projName.trim()) createProjectM.mutate() }}
         />
-      )}
-      {paletteOpen && (
-        <CommandPalette query={paletteQuery} groups={paletteGroups} onInput={setPaletteQuery} onClose={() => setPaletteOpen(false)} />
       )}
     </div>
   )

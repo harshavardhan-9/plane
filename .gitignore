@@ -1,7 +1,13 @@
 docs/
 
-# Local smoke tests 
+# Local smoke tests
 backend/local-tests/
+
+# Full frontend snapshot before scope-reduction pass — kept locally to revert if needed
+frontend-full-backup/
+
+# Learning exercises — not part of the actual product
+backend/src/main/java/com/plane/practice/
 
 # Maven
 **/target/

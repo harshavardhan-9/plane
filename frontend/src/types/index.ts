@@ -80,6 +80,15 @@ export interface WorkspaceMember {
   role: string
 }
 
+export interface DashboardStats {
+  myOpenIssues: number
+  overdueIssues: number
+  activeCycles: number
+  totalIssues: number
+  completedIssues: number
+  completionPercentage: number
+}
+
 export interface IssueComment {
   id: string
   issueId: string
