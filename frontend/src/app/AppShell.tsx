@@ -10,8 +10,9 @@ import { getIssues, createIssue, updateIssue, getComments, addComment, getActivi
 import { getCycles, getCycleIssues, getBurndown, createCycle } from '../api/cycles'
 import { searchIssues } from '../api/search'
 import { getDashboard } from '../api/analytics'
+import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications'
 import type { Issue, State, WorkspaceMember } from '../types'
-import { ICONS, PRIORITIES, PRIORITY_ORDER, SEED_NOTIFICATIONS, type PriorityKey, type Notification, type Member } from './data'
+import { ICONS, PRIORITIES, PRIORITY_ORDER, type PriorityKey, type Member } from './data'
 import Icon from './Icon'
 import PeekPanel, { type PeekData } from './PeekPanel'
 import CreateProjectModal from './CreateProjectModal'
@@ -65,13 +66,13 @@ export default function AppShell() {
   const [activeCycleId, setActiveCycleId] = useState<string | null>(null)
   const [inviteText, setInviteText] = useState('')
   const [pendingInvites, setPendingInvites] = useState<Member[]>([])
-  const [notifications, setNotifications] = useState<Notification[]>(SEED_NOTIFICATIONS)
 
   // ─── Queries ───
   const { data: workspaces = [] } = useQuery({ queryKey: ['workspaces'], queryFn: getWorkspaces })
   const { data: projects = [], isLoading: projectsLoading } = useQuery({ queryKey: ['projects', slug], queryFn: () => getProjects(slug), enabled: !!slug })
   const { data: wsMembers = [] } = useQuery({ queryKey: ['members', slug], queryFn: () => getMembers(slug), enabled: !!slug })
   const { data: dashboard = null } = useQuery({ queryKey: ['dashboard', slug], queryFn: () => getDashboard(slug), enabled: !!slug })
+  const { data: notifications = [] } = useQuery({ queryKey: ['notifications', slug], queryFn: () => getNotifications(slug), enabled: !!slug })
 
   const projectId = selectedProjectId ?? projects[0]?.id ?? null
   const project = projects.find((p) => p.id === projectId) ?? null
@@ -187,6 +188,16 @@ export default function AppShell() {
       qc.invalidateQueries({ queryKey: ['comments', slug, projectId, peekId] })
       qc.invalidateQueries({ queryKey: ['activity', slug, projectId, peekId] })
     },
+  })
+
+  const markNotifReadM = useMutation({
+    mutationFn: (notificationId: string) => markNotificationRead(slug, notificationId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications', slug] }),
+  })
+
+  const markAllNotifsReadM = useMutation({
+    mutationFn: () => markAllNotificationsRead(slug),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications', slug] }),
   })
 
   const inviteM = useMutation({
@@ -378,15 +389,22 @@ export default function AppShell() {
     setPeekId(id)
   }
 
-  // ─── Inbox (mock until notifications backend lands) ───
-  const MOCK_ACTORS: Record<string, { name: string; bg: string }> = {
-    S: { name: 'Sana', bg: MEMBER_COLORS[1] }, R: { name: 'Rohit', bg: MEMBER_COLORS[2] },
+  // ─── Inbox ───
+  const NOTIF_ACTION: Record<string, string> = {
+    ISSUE_CREATED: 'created',
+    ISSUE_UPDATED: 'updated',
+    COMMENT_ADDED: 'commented on',
   }
   const unread = notifications.filter((n) => !n.read).length
-  const notifRows = notifications.map((n) => ({
-    id: n.id, initial: n.who, bg: MOCK_ACTORS[n.who]?.bg ?? UNASSIGNED_BG, name: MOCK_ACTORS[n.who]?.name ?? n.who,
-    action: n.action, target: n.target, snippet: n.snippet, time: n.time, read: n.read,
-  }))
+  const notifRows = notifications.map((n) => {
+    const actor = memberOf(n.actorId)
+    return {
+      id: n.id, initial: actor.initial, bg: actor.bg, name: actor.name,
+      action: NOTIF_ACTION[n.verb] ?? n.verb.toLowerCase(),
+      target: `${n.issueIdentifier} · ${n.issueTitle}`,
+      snippet: '', time: fmtDate(n.createdAt), read: n.read,
+    }
+  })
 
   // ─── Cycles ───
   const today = new Date().toISOString().slice(0, 10)
@@ -683,8 +701,8 @@ export default function AppShell() {
               <InboxView
                 rows={notifRows}
                 unreadLabel={unread === 0 ? 'All caught up' : unread + ' unread'}
-                onMarkRead={(id) => setNotifications((ns) => ns.map((x) => (x.id === id ? { ...x, read: true } : x)))}
-                onMarkAllRead={() => setNotifications((ns) => ns.map((n) => ({ ...n, read: true })))}
+                onMarkRead={(id) => markNotifReadM.mutate(id)}
+                onMarkAllRead={() => markAllNotifsReadM.mutate()}
               />
             )}
             {view === 'settings' && (

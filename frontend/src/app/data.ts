@@ -28,16 +28,6 @@ export interface Cycle {
 
 export interface Comment { who: AssigneeKey; text: string; time: string }
 
-export interface Notification {
-  id: number
-  who: AssigneeKey
-  action: string
-  target: string
-  snippet: string
-  time: string
-  read: boolean
-}
-
 export interface Member {
   name: string
   email: string
@@ -151,19 +141,6 @@ export const cycleOf = (it: Issue): number => {
 export const SEED_COMMENTS: Record<number, Comment[]> = {
   7: [{ who: 'S', text: 'Blocked on the drop-target refactor — see branch feat/dnd.', time: '2h ago' }],
 }
-
-export const SEED_NOTIFICATIONS: Notification[] = [
-  { id: 1, who: 'S', action: 'commented on', target: 'PERS-11 · Drag-and-drop ordering in board view', snippet: 'Blocked on the drop-target refactor — see branch feat/dnd.', time: '2h', read: false },
-  { id: 2, who: 'R', action: 'assigned you', target: 'PERS-14 · Cycle burndown chart endpoint', snippet: '', time: '5h', read: false },
-  { id: 3, who: 'S', action: 'marked Done', target: 'PERS-3 · Auth screens — email and password flow', snippet: '', time: '1d', read: true },
-  { id: 4, who: 'R', action: 'mentioned you in', target: 'PERS-8 · Spike: realtime sync via websockets', snippet: '@Aarav should we park this until Cycle 3?', time: '2d', read: true },
-]
-
-export const SEED_MEMBERS: Member[] = [
-  { name: 'Aarav Mehta', email: 'aarav@personal.dev', role: 'Admin', initial: 'A', bg: 'oklch(0.5527 0.1361 288.8)', roleBg: 'var(--accent-subtle)', roleColor: 'var(--accent-primary)' },
-  { name: 'Sana Kapoor', email: 'sana@personal.dev', role: 'Member', initial: 'S', bg: 'oklch(0.5704 0.1574 345.25)', roleBg: 'var(--bg-layer-1)', roleColor: 'var(--txt-tertiary)' },
-  { name: 'Rohit Iyer', email: 'rohit@personal.dev', role: 'Member', initial: 'R', bg: 'oklch(0.5883 0.1413 149.06)', roleBg: 'var(--bg-layer-1)', roleColor: 'var(--txt-tertiary)' },
-]
 
 export const SEED_ISSUES: Issue[] = [
   { id: 1, seq: 4, name: 'Design workspace switcher dropdown', state: 'backlog', priority: 'low', assignee: 'S', due: 'Jul 18', labels: ['design'] },

@@ -1,5 +1,5 @@
 export interface NotifRow {
-  id: number
+  id: string
   initial: string
   bg: string
   name: string
@@ -13,7 +13,7 @@ export interface NotifRow {
 interface Props {
   rows: NotifRow[]
   unreadLabel: string
-  onMarkRead: (id: number) => void
+  onMarkRead: (id: string) => void
   onMarkAllRead: () => void
 }
 

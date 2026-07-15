@@ -89,6 +89,17 @@ export interface DashboardStats {
   completionPercentage: number
 }
 
+export interface ApiNotification {
+  id: string
+  actorId: string
+  verb: 'ISSUE_CREATED' | 'ISSUE_UPDATED' | 'COMMENT_ADDED'
+  issueId: string
+  issueIdentifier: string
+  issueTitle: string
+  read: boolean
+  createdAt: string
+}
+
 export interface IssueComment {
   id: string
   issueId: string
