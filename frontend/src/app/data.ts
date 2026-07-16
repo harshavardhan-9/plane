@@ -124,6 +124,7 @@ export const ICONS = {
   close: 'M18 6 6 18 M6 6l12 12',
   check: 'M20 6 9 17l-5-5',
   alert: 'M12 3 a9 9 0 1 1 0 18 a9 9 0 0 1 0 -18 z M12 8v4 M12 16h.01',
+  trash: 'M3 6h18 M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z M10 11v6 M14 11v6',
 }
 
 export const CYCLES: Cycle[] = [

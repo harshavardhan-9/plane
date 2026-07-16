@@ -35,6 +35,7 @@ interface Props {
   onCycleAssignee: () => void
   onCommentInput: (v: string) => void
   onAddComment: () => void
+  onDelete: () => void
 }
 
 const propBtn: React.CSSProperties = {
@@ -62,9 +63,14 @@ export default function PeekPanel(p: Props) {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid var(--border-subtle)', flexShrink: 0 }}>
           <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--txt-tertiary)' }}>{p.projectName} › {p.peek.key}</span>
-          <button onClick={p.onClose} title="Close" className="hov-layer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--txt-tertiary)', cursor: 'pointer' }}>
-            <Icon path={ICONS.close} size={14} sw={2} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={p.onDelete} title="Delete work item" className="hov-layer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--txt-tertiary)', cursor: 'pointer' }}>
+              <Icon path={ICONS.trash} size={14} sw={1.7} />
+            </button>
+            <button onClick={p.onClose} title="Close" className="hov-layer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--txt-tertiary)', cursor: 'pointer' }}>
+              <Icon path={ICONS.close} size={14} sw={2} />
+            </button>
+          </div>
         </div>
 
         <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>

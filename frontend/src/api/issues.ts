@@ -12,6 +12,9 @@ export const createIssue = (slug: string, projectId: string, data: { title: stri
 export const updateIssue = (slug: string, projectId: string, issueId: string, patch: Partial<{ title: string; description: string; stateId: string; priority: string; assigneeIds: string[]; dueDate: string | null }>) =>
   client.patch<Issue>(`${base(slug, projectId)}/${issueId}`, patch).then((r) => r.data)
 
+export const deleteIssue = (slug: string, projectId: string, issueId: string) =>
+  client.delete(`${base(slug, projectId)}/${issueId}`)
+
 export const getActivity = (slug: string, projectId: string, issueId: string) =>
   client.get<IssueActivity[]>(`${base(slug, projectId)}/${issueId}/activity`).then((r) => r.data)
 

@@ -30,13 +30,18 @@ export interface CycleDetail {
   rows: CycleRow[]
 }
 
+export interface AvailableIssue { id: string; key: string; title: string }
+
 interface Props {
   cd: CycleDetail
   onBack: () => void
   onOpenPeek: (id: string) => void
+  availableIssues: AvailableIssue[]
+  onAddIssue: (issueId: string) => void
+  onRemoveIssue: (issueId: string) => void
 }
 
-export default function CycleDetailView({ cd, onBack, onOpenPeek }: Props) {
+export default function CycleDetailView({ cd, onBack, onOpenPeek, availableIssues, onAddIssue, onRemoveIssue }: Props) {
   return (
     <div style={{ flex: 1, overflowY: 'auto' }}>
       <div style={{ padding: '16px 21px 20px 21px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -75,6 +80,18 @@ export default function CycleDetailView({ cd, onBack, onOpenPeek }: Props) {
             <polyline points={cd.actualPoints} fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
           </svg>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <select
+            value=""
+            onChange={(e) => { if (e.target.value) onAddIssue(e.target.value) }}
+            disabled={availableIssues.length === 0}
+            style={{ height: 30, padding: '0 8px', borderRadius: 6, border: '1px solid var(--border-strong)', background: 'var(--bg-surface-1)', color: 'var(--txt-secondary)', fontSize: 12, cursor: availableIssues.length === 0 ? 'default' : 'pointer' }}>
+            <option value="" disabled>{availableIssues.length === 0 ? 'No more work items to add' : '+ Add work item to cycle'}</option>
+            {availableIssues.map((ai) => (
+              <option key={ai.id} value={ai.id}>{ai.key} · {ai.title}</option>
+            ))}
+          </select>
+        </div>
       </div>
       {cd.rows.map((cr) => (
         <div key={cr.id} onClick={() => onOpenPeek(cr.id)} className="hov-layer"
@@ -92,6 +109,10 @@ export default function CycleDetailView({ cd, onBack, onOpenPeek }: Props) {
               {cr.stateLabel}
             </span>
             <span title={cr.assigneeName} style={{ width: 22, height: 22, borderRadius: '50%', background: cr.assigneeBg, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600 }}>{cr.assigneeInitial}</span>
+            <button onClick={(e) => { e.stopPropagation(); onRemoveIssue(cr.id) }} title="Remove from cycle" className="hov-layer"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 5, border: 'none', background: 'transparent', color: 'var(--txt-tertiary)', cursor: 'pointer' }}>
+              <Icon path={ICONS.close} size={12} sw={2} />
+            </button>
           </div>
         </div>
       ))}

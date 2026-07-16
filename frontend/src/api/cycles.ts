@@ -12,5 +12,11 @@ export const createCycle = (slug: string, projectId: string, data: { name: strin
 export const getCycleIssues = (slug: string, projectId: string, cycleId: string) =>
   client.get<Issue[]>(`${base(slug, projectId)}/${cycleId}/issues`).then((r) => r.data)
 
+export const addIssueToCycle = (slug: string, projectId: string, cycleId: string, issueId: string) =>
+  client.post(`${base(slug, projectId)}/${cycleId}/issues`, { issueId })
+
+export const removeIssueFromCycle = (slug: string, projectId: string, cycleId: string, issueId: string) =>
+  client.delete(`${base(slug, projectId)}/${cycleId}/issues/${issueId}`)
+
 export const getBurndown = (slug: string, projectId: string, cycleId: string) =>
   client.get<BurndownPoint[]>(`/workspaces/${slug}/projects/${projectId}/cycles/${cycleId}/burndown`).then((r) => r.data)

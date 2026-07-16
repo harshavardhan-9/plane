@@ -7,6 +7,9 @@ export const getProjects = (slug: string) =>
 export const createProject = (slug: string, data: { name: string; identifier: string; network: string; description: string }) =>
   client.post<Project>(`/workspaces/${slug}/projects`, data).then((r) => r.data)
 
+export const deleteProject = (slug: string, projectId: string) =>
+  client.delete(`/workspaces/${slug}/projects/${projectId}`)
+
 export const getStates = (slug: string, projectId: string) =>
   client.get<State[]>(`/workspaces/${slug}/projects/${projectId}/states`).then((r) => r.data)
 

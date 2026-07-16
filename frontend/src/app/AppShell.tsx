@@ -5,9 +5,9 @@ import { getStoredUser, clearAuth } from '../store/auth'
 import { logout } from '../api/auth'
 import { getTheme, toggleTheme as applyToggleTheme } from '../store/theme'
 import { getWorkspaces, getMembers, inviteMember } from '../api/workspaces'
-import { getProjects, createProject, getStates, getLabels } from '../api/projects'
-import { getIssues, createIssue, updateIssue, getComments, addComment, getActivity } from '../api/issues'
-import { getCycles, getCycleIssues, getBurndown, createCycle } from '../api/cycles'
+import { getProjects, createProject, deleteProject, getStates, getLabels } from '../api/projects'
+import { getIssues, createIssue, updateIssue, deleteIssue, getComments, addComment, getActivity } from '../api/issues'
+import { getCycles, getCycleIssues, getBurndown, createCycle, addIssueToCycle, removeIssueFromCycle } from '../api/cycles'
 import { searchIssues } from '../api/search'
 import { getDashboard } from '../api/analytics'
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/notifications'
@@ -17,10 +17,11 @@ import Icon from './Icon'
 import PeekPanel, { type PeekData } from './PeekPanel'
 import CreateProjectModal from './CreateProjectModal'
 import CreateCycleModal from './CreateCycleModal'
+import Toast from './Toast'
 import HomeView from './views/HomeView'
 import WorkItemsView from './views/WorkItemsView'
 import CyclesView, { type CycleListGroup } from './views/CyclesView'
-import CycleDetailView, { type CycleDetail } from './views/CycleDetailView'
+import CycleDetailView, { type CycleDetail, type AvailableIssue } from './views/CycleDetailView'
 import InboxView from './views/InboxView'
 import SettingsView from './views/SettingsView'
 
@@ -66,21 +67,25 @@ export default function AppShell() {
   const [activeCycleId, setActiveCycleId] = useState<string | null>(null)
   const [inviteText, setInviteText] = useState('')
   const [pendingInvites, setPendingInvites] = useState<Member[]>([])
+  const [toastMsg, setToastMsg] = useState<string | null>(null)
+
+  const showError = (err: unknown, fallback: string) =>
+    setToastMsg((err as any)?.response?.data?.message ?? fallback)
 
   // ─── Queries ───
   const { data: workspaces = [] } = useQuery({ queryKey: ['workspaces'], queryFn: getWorkspaces })
   const { data: projects = [], isLoading: projectsLoading } = useQuery({ queryKey: ['projects', slug], queryFn: () => getProjects(slug), enabled: !!slug })
-  const { data: wsMembers = [] } = useQuery({ queryKey: ['members', slug], queryFn: () => getMembers(slug), enabled: !!slug })
+  const { data: wsMembers = [], isLoading: membersLoading } = useQuery({ queryKey: ['members', slug], queryFn: () => getMembers(slug), enabled: !!slug })
   const { data: dashboard = null } = useQuery({ queryKey: ['dashboard', slug], queryFn: () => getDashboard(slug), enabled: !!slug })
-  const { data: notifications = [] } = useQuery({ queryKey: ['notifications', slug], queryFn: () => getNotifications(slug), enabled: !!slug })
+  const { data: notifications = [], isLoading: notificationsLoading } = useQuery({ queryKey: ['notifications', slug], queryFn: () => getNotifications(slug), enabled: !!slug })
 
   const projectId = selectedProjectId ?? projects[0]?.id ?? null
   const project = projects.find((p) => p.id === projectId) ?? null
 
-  const { data: states = [] } = useQuery({ queryKey: ['states', slug, projectId], queryFn: () => getStates(slug, projectId!), enabled: !!projectId })
-  const { data: issues = [] } = useQuery({ queryKey: ['issues', slug, projectId], queryFn: () => getIssues(slug, projectId!), enabled: !!projectId })
+  const { data: states = [], isLoading: statesLoading } = useQuery({ queryKey: ['states', slug, projectId], queryFn: () => getStates(slug, projectId!), enabled: !!projectId })
+  const { data: issues = [], isLoading: issuesLoading } = useQuery({ queryKey: ['issues', slug, projectId], queryFn: () => getIssues(slug, projectId!), enabled: !!projectId })
   const { data: labels = [] } = useQuery({ queryKey: ['labels', slug, projectId], queryFn: () => getLabels(slug, projectId!), enabled: !!projectId })
-  const { data: cycles = [] } = useQuery({ queryKey: ['cycles', slug, projectId], queryFn: () => getCycles(slug, projectId!), enabled: !!projectId })
+  const { data: cycles = [], isLoading: cyclesLoading } = useQuery({ queryKey: ['cycles', slug, projectId], queryFn: () => getCycles(slug, projectId!), enabled: !!projectId })
 
   const { data: peekComments = [] } = useQuery({
     queryKey: ['comments', slug, projectId, peekId],
@@ -127,6 +132,7 @@ export default function AppShell() {
         old?.map((it) => (it.id === id ? { ...it, ...patch } as Issue : it)))
     },
     onSettled: invalidateIssues,
+    onError: (err) => showError(err, 'Failed to update work item'),
   })
 
   const createIssueM = useMutation({
@@ -156,6 +162,22 @@ export default function AppShell() {
       qc.setQueryData<Issue[]>(['issues', slug, projectId], (old) => [...(old ?? []), temp])
     },
     onSettled: invalidateIssues,
+    onError: (err) => showError(err, 'Failed to create work item'),
+  })
+
+  const deleteIssueM = useMutation({
+    mutationFn: (id: string) => deleteIssue(slug, projectId!, id),
+    onSuccess: () => { setPeekId(null); invalidateIssues() },
+    onError: (err) => showError(err, 'Failed to delete work item'),
+  })
+
+  const deleteProjectM = useMutation({
+    mutationFn: (id: string) => deleteProject(slug, id),
+    onSuccess: (_d, id) => {
+      qc.invalidateQueries({ queryKey: ['projects', slug] })
+      if (id === selectedProjectId) setSelectedProjectId(null)
+    },
+    onError: (err) => showError(err, 'Failed to delete project'),
   })
 
   const createProjectM = useMutation({
@@ -181,6 +203,24 @@ export default function AppShell() {
     },
   })
 
+  const invalidateCycleIssues = () => {
+    qc.invalidateQueries({ queryKey: ['cycle-issues', slug, projectId, activeCycleId] })
+    qc.invalidateQueries({ queryKey: ['burndown', slug, projectId, activeCycleId] })
+    qc.invalidateQueries({ queryKey: ['cycles', slug, projectId] })
+  }
+
+  const addCycleIssueM = useMutation({
+    mutationFn: (issueId: string) => addIssueToCycle(slug, projectId!, activeCycleId!, issueId),
+    onSuccess: invalidateCycleIssues,
+    onError: (err) => showError(err, 'Failed to add work item to cycle'),
+  })
+
+  const removeCycleIssueM = useMutation({
+    mutationFn: (issueId: string) => removeIssueFromCycle(slug, projectId!, activeCycleId!, issueId),
+    onSuccess: invalidateCycleIssues,
+    onError: (err) => showError(err, 'Failed to remove work item from cycle'),
+  })
+
   const addCommentM = useMutation({
     mutationFn: (body: string) => addComment(slug, projectId!, peekId!, body),
     onSuccess: () => {
@@ -188,16 +228,19 @@ export default function AppShell() {
       qc.invalidateQueries({ queryKey: ['comments', slug, projectId, peekId] })
       qc.invalidateQueries({ queryKey: ['activity', slug, projectId, peekId] })
     },
+    onError: (err) => showError(err, 'Failed to add comment'),
   })
 
   const markNotifReadM = useMutation({
     mutationFn: (notificationId: string) => markNotificationRead(slug, notificationId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications', slug] }),
+    onError: (err) => showError(err, 'Failed to mark notification read'),
   })
 
   const markAllNotifsReadM = useMutation({
     mutationFn: () => markAllNotificationsRead(slug),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications', slug] }),
+    onError: (err) => showError(err, 'Failed to mark notifications read'),
   })
 
   const inviteM = useMutation({
@@ -211,6 +254,7 @@ export default function AppShell() {
       }])
       setInviteText('')
     },
+    onError: (err) => showError(err, 'Failed to send invite'),
   })
 
   // Debounced title/description PATCH from peek edits
@@ -457,6 +501,10 @@ export default function AppShell() {
       rows, actualPoints, ...badgeFor(grp),
     }
   }
+  const cycleIssueIds = new Set(cycleIssues.map((it) => it.id))
+  const availableCycleIssues: AvailableIssue[] = issues
+    .filter((it) => !cycleIssueIds.has(it.id))
+    .map((it) => ({ id: it.id, key: it.identifier, title: it.title }))
 
   // ─── Home ───
   const assigned = issues
@@ -602,6 +650,16 @@ export default function AppShell() {
                     ) : (
                       <span style={{ fontSize: 10, color: 'var(--txt-placeholder)' }}>{pr.identifier}</span>
                     )}
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (window.confirm(`Delete project "${pr.name}"? This cannot be undone.`)) deleteProjectM.mutate(pr.id)
+                      }}
+                      title="Delete project"
+                      className="hov-layer"
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 5, color: 'var(--txt-tertiary)', flexShrink: 0 }}>
+                      <Icon path={ICONS.trash} size={12} sw={1.7} />
+                    </span>
                   </button>
                   {isSel && projectExpanded && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: 14, paddingTop: 2 }}>
@@ -680,7 +738,9 @@ export default function AppShell() {
         ) : (
           <>
             {view === 'home' && <HomeView userName={userName} stats={dashboard} assigned={assigned} recents={recents} onOpenPeek={(id) => { setView('work-items'); setPeekId(id) }} />}
-            {view === 'work-items' && (
+            {view === 'work-items' && (issuesLoading || statesLoading ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--txt-placeholder)' }}>Loading…</div>
+            ) : (
               <WorkItemsView
                 groups={groups}
                 nextKey={nextKey} quickAddText={quickAddText}
@@ -692,20 +752,33 @@ export default function AppShell() {
                 searchQuery={searchQuery} onSearchInput={setSearchQuery}
                 searchResults={searchResults} onSelectSearchResult={onSelectSearchResult}
               />
-            )}
-            {view === 'cycles' && <CyclesView groups={cycleListGroups} userInitial={userInitial} onOpen={(id) => { setActiveCycleId(id); setView('cycle-detail') }} onCreate={openCycleCreate} />}
+            ))}
+            {view === 'cycles' && (cyclesLoading ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--txt-placeholder)' }}>Loading…</div>
+            ) : (
+              <CyclesView groups={cycleListGroups} userInitial={userInitial} onOpen={(id) => { setActiveCycleId(id); setView('cycle-detail') }} onCreate={openCycleCreate} />
+            ))}
             {view === 'cycle-detail' && cd && (
-              <CycleDetailView cd={cd} onBack={() => { setView('cycles'); setActiveCycleId(null) }} onOpenPeek={setPeekId} />
+              <CycleDetailView
+                cd={cd} onBack={() => { setView('cycles'); setActiveCycleId(null) }} onOpenPeek={setPeekId}
+                availableIssues={availableCycleIssues}
+                onAddIssue={(id) => addCycleIssueM.mutate(id)}
+                onRemoveIssue={(id) => removeCycleIssueM.mutate(id)}
+              />
             )}
-            {view === 'inbox' && (
+            {view === 'inbox' && (notificationsLoading ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--txt-placeholder)' }}>Loading…</div>
+            ) : (
               <InboxView
                 rows={notifRows}
                 unreadLabel={unread === 0 ? 'All caught up' : unread + ' unread'}
                 onMarkRead={(id) => markNotifReadM.mutate(id)}
                 onMarkAllRead={() => markAllNotifsReadM.mutate()}
               />
-            )}
-            {view === 'settings' && (
+            ))}
+            {view === 'settings' && (membersLoading ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--txt-placeholder)' }}>Loading…</div>
+            ) : (
               <SettingsView
                 workspaceName={workspaces.find((w) => w.slug === slug)?.name ?? slug}
                 workspaceUrl={`plane.local/${slug}`}
@@ -713,7 +786,7 @@ export default function AppShell() {
                 onInviteInput={setInviteText}
                 onInvite={() => { const email = inviteText.trim(); if (email.includes('@')) inviteM.mutate(email) }}
               />
-            )}
+            ))}
           </>
         )}
       </div>
@@ -731,6 +804,7 @@ export default function AppShell() {
           onCycleAssignee={() => cycleAssigneeOf(pk.id)}
           onCommentInput={setCommentText}
           onAddComment={() => { const body = commentText.trim(); if (body) addCommentM.mutate(body) }}
+          onDelete={() => { if (window.confirm(`Delete work item "${pk.identifier}"? This cannot be undone.`)) deleteIssueM.mutate(pk.id) }}
         />
       )}
       {createOpen && (
@@ -751,6 +825,7 @@ export default function AppShell() {
           onClose={() => setCycleCreateOpen(false)} onCreate={() => { if (cycleName.trim()) createCycleM.mutate() }}
         />
       )}
+      {toastMsg && <Toast message={toastMsg} onDismiss={() => setToastMsg(null)} />}
     </div>
   )
 }
