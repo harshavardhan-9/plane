@@ -41,7 +41,7 @@ public class LabelController {
     public LabelResponse update(@PathVariable String slug,
                                 @PathVariable UUID projectId,
                                 @PathVariable UUID labelId,
-                                @RequestBody UpdateLabelRequest request,
+                                @Valid @RequestBody UpdateLabelRequest request,
                                 @AuthenticationPrincipal UserPrincipal principal) {
         return labelService.update(slug, projectId, labelId, request, principal.getUserId());
     }
