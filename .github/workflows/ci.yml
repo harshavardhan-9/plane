@@ -21,7 +21,9 @@ jobs:
 
       - name: mvn verify
         working-directory: backend
-        run: ./mvnw -B verify
+        run: |
+          chmod +x ./mvnw
+          ./mvnw -B verify
 
       - name: Build backend Docker image
         run: docker build -t plane-backend:${{ github.sha }} ./backend
